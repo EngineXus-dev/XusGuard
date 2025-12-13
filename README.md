@@ -1,6 +1,6 @@
 # Uni-Adblock
 
-**Version 1.1.1**
+**Version 1.1.2**
 
 A cross-platform ad blocker for macOS, Linux, and Windows that blocks ads by modifying your system's hosts file. The tool downloads and merges hosts files from multiple trusted sources to create a comprehensive ad-blocking solution.
 
@@ -41,25 +41,25 @@ Run Uni-Adblock directly from GitHub with a single command - no manual downloads
 
 **macOS/Linux (One-liner):**
 ```bash
-curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.1/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/install.sh | sudo bash
 ```
 
 **macOS/Linux (Download installer first):**
 ```bash
-curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.1/install.sh -o install.sh
+curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/install.sh -o install.sh
 chmod +x install.sh
 sudo ./install.sh
 ```
 
 **macOS/Linux (Ultra-simple - direct run):**
 ```bash
-curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.1/uniadblock.py | sudo python3
+curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/uniadblock.py | sudo python3
 ```
 *(Note: This method won't download sources.json, but the script will create a default one)*
 
 **Windows:**
 ```cmd
-powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.1/install.bat' -OutFile 'install.bat'; .\install.bat"
+powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/install.bat' -OutFile 'install.bat'; .\install.bat"
 ```
 
 Or download `install.bat` and double-click it (Run as Administrator).
@@ -240,7 +240,7 @@ adblock/
 ├── install.bat         # One-command installer (Windows) - downloads from GitHub, auto-installs Python
 ├── venv/               # Virtual environment (auto-created)
 ├── hosts_backups/      # Timestamped backups (auto-created)
-└── hosts_sources/     # Individual source files (auto-created)
+└── hosts_sources/      # Individual source files (auto-created)
 ```
 
 ## License
