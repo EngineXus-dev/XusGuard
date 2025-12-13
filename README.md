@@ -1,13 +1,12 @@
 # Uni-Adblock
 
-**Version 1.1.2**
-
-A cross-platform ad blocker for macOS, Linux, and Windows that blocks ads by modifying your system's hosts file. The tool downloads and merges hosts files from multiple trusted sources to create a comprehensive ad-blocking solution.
-
-**Created by: InfoSecREDD**
+**Version 1.1.2**  
+  
+A cross-platform ad blocker for macOS, Linux, and Windows that blocks ads by modifying your system's hosts file. The tool downloads and merges hosts files from multiple trusted sources to create a comprehensive ad-blocking solution.  
+  
+**Created by: InfoSecREDD**  
 
 ## Features
-
 - 🌍 **Cross-platform**: Works on macOS, Linux, and Windows
 - 📦 **Single File**: Everything in one self-contained Python script
 - 🔧 **Auto-Venv**: Automatically creates and manages its own virtual environment
@@ -24,76 +23,40 @@ A cross-platform ad blocker for macOS, Linux, and Windows that blocks ads by mod
 - 📁 **Individual Source Files**: Each source saved as its own file for easy management
 
 ## Requirements
-
 - Python 3.6 or higher *(will be automatically installed if missing)*
 - Administrator/Root privileges (to modify hosts file)
 - Internet connection (for downloading hosts files and Python if needed)
 
 ## Installation
-
-### One-Command Installation (Recommended)
-
-Run Uni-Adblock directly from GitHub with a single command - no manual downloads needed!
-
+### One-Command Installation (Reccomended)
 **✨ Automatic Python Installation:** The installer scripts will automatically detect and install Python 3 if it's missing on your system!
 
 **📦 Single-File Installers:** The installers automatically download from GitHub and handle Python installation!
 
 **macOS/Linux (One-liner):**
 ```bash
-curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/install.sh | sudo bash
+curl -sL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/install.sh | sudo "$SHELL"
 ```
 
-**macOS/Linux (Download installer first):**
-```bash
-curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/install.sh -o install.sh
-chmod +x install.sh
-sudo ./install.sh
-```
-
-**macOS/Linux (Ultra-simple - direct run):**
-```bash
-curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/uniadblock.py | sudo python3
-```
-*(Note: This method won't download sources.json, but the script will create a default one)*
-
-**Windows:**
+**Windows (PowerShell One-Liner):**
 ```cmd
-powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/install.bat' -OutFile 'install.bat'; .\install.bat"
+iwr https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/install.bat -OutFile "$env:Temp\tmp.bat"; iex "$env:Temp\tmp.bat"
 ```
-
-Or download `install.bat` and double-click it (Run as Administrator).
-
-
 ### Manual Installation
-
-Simply download the `uniadblock.py` file and `sources.json` file - that's all you need!
-
-## Usage
-
-### Quick Start
-
-**macOS/Linux:**
-```bash
-chmod +x uniadblock.py
-sudo python3 uniadblock.py
-```
-
-**Windows:**
-```cmd
-python uniadblock.py
-```
-(Run as Administrator)
-
+**Or** Download [install.bat](./install.bat) and double-click it (Run as Administrator)  
+**Or** Download the [uniadblock.py](./uniadblock.py) file and [sources.json](./sources.json)  
+  
+**Note:** The script requires administrator/root privileges to modify the hosts file  
+  
 The script will automatically:
 - Create a virtual environment in a `venv` folder (if needed)
 - Install required dependencies (`certifi` for SSL certificate handling)
 - Present you with an interactive menu
 
-**Note:** The script requires administrator/root privileges to modify the hosts file.
+**Note:** The script requires administrator/root privileges to modify the hosts file
 
+## Usage
 ### Main Menu Options
-
 1. **Install AdBlock** - Download and install hosts files from enabled sources
 2. **Update AdBlock Hosts Files** - Download and cache hosts files from enabled sources
 3. **View current hosts file** - Display the current hosts file contents
@@ -110,8 +73,7 @@ The script will automatically:
 0. **Exit** - Exit the program
 
 ## Source Management
-
-Sources are managed via `sources.json`. The script comes with 24+ pre-configured sources including:
+Sources are managed via [sources.json](sources.json). The script comes with 24+ pre-configured sources including:
 
 - Steven Black's Unified Hosts
 - AdAway Default Blocklist
@@ -129,7 +91,6 @@ You can:
 - All sources are stored in JSON format for easy editing
 
 ## Service Blocking
-
 The script includes extensive service blocking capabilities organized by category:
 
 - **Social Media** (30+ services): Facebook, Instagram, Twitter/X, TikTok, Snapchat, LinkedIn, Reddit, Discord, WhatsApp, Telegram, YouTube, Twitch, Tumblr, VK, WeChat, Signal, Mastodon, Truth Social, Parler, Gab, MeWe, Clubhouse, and more
@@ -151,7 +112,6 @@ The script includes extensive service blocking capabilities organized by categor
 Each service can be individually toggled on or off, and each category includes an "All" option to toggle all services in that category at once.
 
 ## Domain Redirects
-
 You can redirect domains to specific IP addresses or other domains:
 
 - Redirect a domain to an IP address (e.g., `example.com` → `192.168.1.1`)
@@ -159,7 +119,6 @@ You can redirect domains to specific IP addresses or other domains:
 - System entries (localhost, broadcasthost) are automatically hidden from the redirect list
 
 ## How It Works
-
 1. The script downloads hosts files from enabled sources
 2. Each source is saved as its own file in `hosts_sources/` directory
 3. Parses and extracts valid ad-blocking entries (127.0.0.1 and 0.0.0.0)
@@ -169,7 +128,6 @@ You can redirect domains to specific IP addresses or other domains:
 7. Provides DNS cache flushing for immediate effect
 
 ## Statistics
-
 The main menu displays real-time statistics:
 
 - **Domains to be Blocked**: Number of unique domains from enabled cached sources
@@ -178,13 +136,11 @@ The main menu displays real-time statistics:
 - **Cached sources**: Number of source files downloaded and cached
 
 ## Backup Files
-
 The script automatically creates timestamped backups of your hosts file in the `hosts_backups/` directory. Backup files are named with the format: `hosts_YYYYMMDD_HHMMSS.adblock_backup`
 
 You can restore from any backup using option 5 in the menu.
 
 ## Source Files
-
 Downloaded hosts files are saved individually in the `hosts_sources/` directory. Each source is saved with a simplified filename (e.g., `steven_black_s_unified_hosts.hosts`). This allows you to:
 
 - See which sources are cached
@@ -192,7 +148,6 @@ Downloaded hosts files are saved individually in the `hosts_sources/` directory.
 - Track which sources have been downloaded
 
 ## DNS Cache Flushing
-
 The script includes a built-in DNS cache flush option (menu option 11) that works on all platforms:
 
 - **macOS**: Uses `dscacheutil -flushcache` and `killall -HUP mDNSResponder`
@@ -200,38 +155,27 @@ The script includes a built-in DNS cache flush option (menu option 11) that work
 - **Windows**: Uses `ipconfig /flushdns`
 
 ## Security Note
-
 This script requires administrator/root privileges to modify the system hosts file. Always review the code before running with elevated privileges.
 
 ## Troubleshooting
-
 ### Permission Denied Error
-
 Make sure you're running the script with administrator/root privileges:
 - **macOS/Linux**: Use `sudo python3 uniadblock.py`
 - **Windows**: Right-click and "Run as Administrator"
 
 ### Virtual Environment Issues
-
 If you encounter issues with the virtual environment, simply delete the `venv` folder and run the script again. It will recreate it automatically.
-
 ### DNS Not Updating
-
 After installing, use the built-in DNS flush option (menu option 11). Some applications may need to be restarted.
-
 ### SSL Certificate Errors
-
 The script automatically handles SSL certificate issues by attempting to install `certifi` and falling back to unverified connections if needed. This ensures downloads work even with certificate problems.
-
 ### Sources Not Downloading
-
 - Check your internet connection
 - Verify the source URL is accessible
 - Some sources may be temporarily unavailable
 - Check the script output for specific error messages
 
 ## File Structure
-
 ```
 adblock/
 ├── uniadblock.py       # Main script (single file)
@@ -244,9 +188,7 @@ adblock/
 ```
 
 ## License
-
 This project is provided as-is for educational and personal use.
 
 ## Disclaimer
-
 This tool modifies your system hosts file. While it creates backups, use at your own risk. Some websites may break if they rely on blocked domains for functionality. Always test after installation and restore from backup if needed.
