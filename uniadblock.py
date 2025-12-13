@@ -371,7 +371,7 @@ def download_hosts_file(url, timeout=60):
         
         ssl_context = None
         try:
-            import certifi
+            import certifi  # type: ignore
             ssl_context = ssl.create_default_context(cafile=certifi.where())
         except ImportError:
             try:
@@ -379,7 +379,7 @@ def download_hosts_file(url, timeout=60):
                 if python_cmd:
                     subprocess.run([python_cmd, '-m', 'pip', 'install', '--quiet', 'certifi'], 
                                  check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    import certifi
+                    import certifi  # type: ignore
                     ssl_context = ssl.create_default_context(cafile=certifi.where())
             except:
                 ssl_context = ssl.create_default_context()
@@ -929,7 +929,7 @@ def show_menu():
     
     menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  Uni-Adblock - Universal Platform Adblock{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
-    menu_lines.append(f"{Colors.BRIGHT_WHITE}  Created by {Colors.BRIGHT_GREEN}InfoSecREDD{Colors.ENDC} {Colors.BRIGHT_CYAN}v1.1.0{Colors.ENDC}")
+    menu_lines.append(f"{Colors.BRIGHT_WHITE}  Created by {Colors.BRIGHT_GREEN}InfoSecREDD{Colors.ENDC} {Colors.BRIGHT_CYAN}v1.1.1{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
     
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
@@ -3056,7 +3056,9 @@ def cleanup_project(non_interactive=False):
         menu_lines.append(f"{Colors.BRIGHT_RED}  • Virtual environment (venv/){Colors.ENDC}")
         menu_lines.append(f"{Colors.BRIGHT_RED}  • Hosts file backups ({DEFAULT_BACKUP_DIR}/){Colors.ENDC}")
         menu_lines.append(f"{Colors.BRIGHT_RED}  • Cached source files ({SOURCES_DIR}/){Colors.ENDC}")
-        menu_lines.append(f"{Colors.BRIGHT_RED}  • Python cache (__pycache__/){Colors.ENDC}")
+        menu_lines.append(f"{Colors.BRIGHT_RED}  • Python cache (__pycache__/ and *.pyc files){Colors.ENDC}")
+        menu_lines.append(f"{Colors.BRIGHT_RED}  • Generator scripts (if any){Colors.ENDC}")
+        menu_lines.append(f"{Colors.BRIGHT_RED}  • OS temporary files (.DS_Store, Thumbs.db){Colors.ENDC}")
         menu_lines.append("")
         menu_lines.append(f"{Colors.WHITE}  This will reset:{Colors.ENDC}")
         menu_lines.append(f"{Colors.BRIGHT_YELLOW}  • sources.json (all sources disabled except MVPS){Colors.ENDC}")
@@ -3137,6 +3139,47 @@ def cleanup_project(non_interactive=False):
         except Exception as e:
             errors.append(f"__pycache__/: {e}")
             print_error(f"Failed to remove __pycache__/: {e}")
+    
+    # Remove individual .pyc files
+    for pyc_file in script_dir.glob('*.pyc'):
+        try:
+            pyc_file.unlink()
+            removed_items.append(str(pyc_file.name))
+        except Exception as e:
+            errors.append(f"{pyc_file.name}: {e}")
+    
+    # Remove generator scripts if they exist
+    generator_scripts = [
+        'create_single_file_installers.sh',
+        'create_single_file_installers_fixed.sh',
+        'generate_standalone_installers.py'
+    ]
+    for gen_script in generator_scripts:
+        gen_path = script_dir / gen_script
+        if gen_path.exists():
+            try:
+                gen_path.unlink()
+                removed_items.append(gen_script)
+                print_success(f"Removed generator script: {gen_script}")
+            except Exception as e:
+                errors.append(f"{gen_script}: {e}")
+    
+    # Remove OS-specific temporary files
+    ds_store = script_dir / '.DS_Store'
+    if ds_store.exists():
+        try:
+            ds_store.unlink()
+            removed_items.append('.DS_Store')
+        except Exception as e:
+            errors.append(f".DS_Store: {e}")
+    
+    thumbs_db = script_dir / 'Thumbs.db'
+    if thumbs_db.exists():
+        try:
+            thumbs_db.unlink()
+            removed_items.append('Thumbs.db')
+        except Exception as e:
+            errors.append(f"Thumbs.db: {e}")
     
     sources_json_path = get_sources_json_path()
     if sources_json_path.exists():
