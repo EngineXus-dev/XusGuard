@@ -1,10 +1,10 @@
 # Uni-Adblock
 
-**Version 1.1.2**  
+**Version 1.1.3**  
   
 A cross-platform ad blocker for macOS, Linux, and Windows that blocks ads by modifying your system's hosts file. The tool downloads and merges hosts files from multiple trusted sources to create a comprehensive ad-blocking solution.  
   
-**Created by: InfoSecREDD**  
+**Created by: InfoSecREDD**
 
 ## Features
 - 🌍 **Cross-platform**: Works on macOS, Linux, and Windows
@@ -28,20 +28,22 @@ A cross-platform ad blocker for macOS, Linux, and Windows that blocks ads by mod
 - Internet connection (for downloading hosts files and Python if needed)
 
 ## Installation
-### One-Command Installation (Reccomended)
+### One-Command Installation (Recommended)
 **✨ Automatic Python Installation:** The installer scripts will automatically detect and install Python 3 if it's missing on your system!
 
 **📦 Single-File Installers:** The installers automatically download from GitHub and handle Python installation!
 
 **macOS/Linux (One-liner):**
 ```bash
-curl -sL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/install.sh | sudo "$SHELL"
+curl -sL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/main/install.sh | sudo "$SHELL"
 ```
 
 **Windows (PowerShell One-Liner):**
 ```cmd
-iwr https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/install.bat -OutFile "$env:Temp\tmp.bat"; iex "$env:Temp\tmp.bat"
+iwr https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/main/install.bat -OutFile "$env:Temp\tmp.bat"; iex "$env:Temp\tmp.bat"
 ```
+
+> **Note:** The install scripts automatically determine the latest version from GitHub, so you don't need to specify version numbers. They will always download the correct versioned release.
 ### Manual Installation
 **Or** Download [install.bat](./install.bat) and double-click it (Run as Administrator)  
 **Or** Download the [uniadblock.py](./uniadblock.py) file and [sources.json](./sources.json)  
