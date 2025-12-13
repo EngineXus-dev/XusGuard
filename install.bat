@@ -8,8 +8,24 @@ echo   Uni-Adblock - One-Command Installer
 echo ========================================
 echo.
 
-set SCRIPT_URL=https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/uniadblock.py
-set SOURCES_URL=https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/sources.json
+REM Extract version from uniadblock.py (dynamically determine version)
+REM Download from main branch first to get the latest VERSION constant, then use it for tag URLs
+echo [INFO] Determining latest version...
+set VERSION=
+for /f "delims=" %%i in ('powershell -Command "try { $content = (Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/main/uniadblock.py' -UseBasicParsing).Content; $match = $content -match '^VERSION = \"([^\"]+)\"'; if ($match) { Write-Host $matches[1] } else { exit 1 } } catch { exit 1 }" 2^>nul') do set VERSION=%%i
+
+if not defined VERSION (
+    echo [ERROR] Failed to determine version from GitHub
+    echo Please check your internet connection and try again
+    pause
+    exit /b 1
+)
+
+echo [OK] Version: %VERSION%
+echo.
+
+set SCRIPT_URL=https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v%VERSION%/uniadblock.py
+set SOURCES_URL=https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v%VERSION%/sources.json
 
 REM Check for Python in PATH first
 python --version >nul 2>&1
