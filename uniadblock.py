@@ -17,6 +17,7 @@ import ssl
 import json
 import re
 import socket
+import time
 from pathlib import Path
 from datetime import datetime, timedelta
 import tempfile
@@ -756,39 +757,85 @@ def restore_hosts_file(hosts_path):
 
 def install_hosts_file(hosts_path, content):
     """Install the generated hosts file to system location"""
-    try:
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.hosts', encoding='utf-8') as tmp_file:
-            tmp_file.write(content)
-            tmp_path = tmp_file.name
-        
-        if platform.system() == 'Windows':
-            try:
-                shutil.copy2(tmp_path, hosts_path)
-            except PermissionError:
-                try:
-                    import ctypes
-                    if ctypes.windll.shell32.IsUserAnAdmin():
-                        shutil.copy2(tmp_path, hosts_path)
-                    else:
-                        raise PermissionError("Administrator privileges required")
-                except:
-                    raise PermissionError("Administrator privileges required")
-        else:
-            shutil.copy2(tmp_path, hosts_path)
-        
+    max_retries = 5
+    retry_delay = 0.5
+    
+    for attempt in range(max_retries):
         try:
-            os.unlink(tmp_path)
-        except:
-            pass
-        
-        print_success(f"Hosts file installed to {hosts_path}")
-        return True
-    except PermissionError:
-        print_error("Permission denied. Please run with administrator/root privileges.")
-        return False
-    except Exception as e:
-        print_error(f"Failed to install hosts file: {e}")
-        return False
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.hosts', encoding='utf-8') as tmp_file:
+                tmp_file.write(content)
+                tmp_path = tmp_file.name
+            
+            if platform.system() == 'Windows':
+                try:
+                    if attempt > 0:
+                        time.sleep(retry_delay * attempt)
+                    
+                    shutil.copy2(tmp_path, hosts_path)
+                except (PermissionError, OSError) as e:
+                    if attempt < max_retries - 1:
+                        if "being used by another process" in str(e).lower() or "used by another program" in str(e).lower():
+                            print_info(f"File is locked, retrying in {retry_delay * (attempt + 1):.1f}s... (attempt {attempt + 1}/{max_retries})")
+                            try:
+                                os.unlink(tmp_path)
+                            except:
+                                pass
+                            continue
+                    try:
+                        import ctypes
+                        if ctypes.windll.shell32.IsUserAnAdmin():
+                            if attempt > 0:
+                                time.sleep(retry_delay * attempt)
+                            shutil.copy2(tmp_path, hosts_path)
+                        else:
+                            raise PermissionError("Administrator privileges required")
+                    except:
+                        raise PermissionError("Administrator privileges required")
+            else:
+                if attempt > 0:
+                    time.sleep(retry_delay * attempt)
+                shutil.copy2(tmp_path, hosts_path)
+            
+            try:
+                os.unlink(tmp_path)
+            except:
+                pass
+            
+            print_success(f"Hosts file installed to {hosts_path}")
+            return True
+        except PermissionError:
+            if attempt < max_retries - 1:
+                print_info(f"Permission denied, retrying... (attempt {attempt + 1}/{max_retries})")
+                time.sleep(retry_delay * (attempt + 1))
+                continue
+            print_error("Permission denied. Please run with administrator/root privileges.")
+            return False
+        except (OSError, IOError) as e:
+            if attempt < max_retries - 1:
+                error_msg = str(e).lower()
+                if "being used by another process" in error_msg or "used by another program" in error_msg or "the process cannot access" in error_msg:
+                    print_info(f"File is locked, retrying in {retry_delay * (attempt + 1):.1f}s... (attempt {attempt + 1}/{max_retries})")
+                    try:
+                        os.unlink(tmp_path)
+                    except:
+                        pass
+                    time.sleep(retry_delay * (attempt + 1))
+                    continue
+            print_error(f"Failed to install hosts file: {e}")
+            try:
+                os.unlink(tmp_path)
+            except:
+                pass
+            return False
+        except Exception as e:
+            print_error(f"Failed to install hosts file: {e}")
+            try:
+                os.unlink(tmp_path)
+            except:
+                pass
+            return False
+    
+    return False
 
 
 def get_stats():
@@ -796,6 +843,7 @@ def get_stats():
     stats = {
         'domains_to_be_blocked': 0,
         'current_blocked_domains': 0,
+        'blocked_services': 0,
         'enabled_sources': 0,
         'total_sources': len(HOSTS_SOURCES),
         'cached_sources': 0
@@ -832,12 +880,12 @@ def get_stats():
             pass
     
     hosts_path = get_hosts_file_path()
+    blocked_domains_set = set()
     if os.path.exists(hosts_path):
         try:
             with open(hosts_path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
                 in_adblock_section = False
-                blocked_domains_set = set()
                 for line in content.split('\n'):
                     line = line.strip()
                     if '# Uni-Adblock' in line:
@@ -853,6 +901,22 @@ def get_stats():
         except Exception:
             pass
     
+    stats['blocked_services'] = 0
+    if blocked_domains_set:
+        try:
+            services = get_individual_services()
+            blocked_services_count = 0
+            for service_key, service in services.items():
+                service_domains = service.get('domains', [])
+                if service_domains:
+                    for domain in service_domains:
+                        if domain.lower() in blocked_domains_set:
+                            blocked_services_count += 1
+                            break
+            stats['blocked_services'] = blocked_services_count
+        except Exception:
+            pass
+    
     return stats
 
 
@@ -865,7 +929,7 @@ def show_menu():
     
     menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  Uni-Adblock - Universal Platform Adblock{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
-    menu_lines.append(f"{Colors.BRIGHT_WHITE}  Created by {Colors.BRIGHT_GREEN}InfoSecREDD{Colors.ENDC}")
+    menu_lines.append(f"{Colors.BRIGHT_WHITE}  Created by {Colors.BRIGHT_GREEN}InfoSecREDD{Colors.ENDC} {Colors.BRIGHT_CYAN}v1.1.0{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
     
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
@@ -873,6 +937,7 @@ def show_menu():
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
     menu_lines.append(f"{Colors.WHITE}  • Domains to be Blocked: {Colors.BRIGHT_GREEN}{Colors.BOLD}{stats['domains_to_be_blocked']:,}{Colors.ENDC}")
     menu_lines.append(f"{Colors.WHITE}  • Current blocked domains: {Colors.BRIGHT_YELLOW}{Colors.BOLD}{stats['current_blocked_domains']:,}{Colors.ENDC}")
+    menu_lines.append(f"{Colors.WHITE}  • Blocked services: {Colors.BRIGHT_MAGENTA}{Colors.BOLD}{stats['blocked_services']}{Colors.ENDC}")
     menu_lines.append(f"{Colors.WHITE}  • Enabled sources: {Colors.BRIGHT_CYAN}{Colors.BOLD}{stats['enabled_sources']}{Colors.ENDC}{Colors.WHITE} / {Colors.BRIGHT_WHITE}{stats['total_sources']}{Colors.ENDC}")
     menu_lines.append(f"{Colors.WHITE}  • Cached sources: {Colors.BRIGHT_BLUE}{Colors.BOLD}{stats['cached_sources']}{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
