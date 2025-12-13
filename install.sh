@@ -5,8 +5,20 @@
 # Don't exit on error - we handle errors manually
 set +e
 
-SCRIPT_URL="https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/uniadblock.py"
-SOURCES_URL="https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/sources.json"
+# Extract version from uniadblock.py (dynamically determine version)
+# Download from main branch first to get the latest VERSION constant, then use it for tag URLs
+echo "📋 Determining latest version..."
+VERSION=$(curl -sSL "https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/main/uniadblock.py" 2>/dev/null | grep -m1 "^VERSION = " | sed 's/.*VERSION = "\(.*\)".*/\1/')
+
+if [ -z "$VERSION" ] || [ "$VERSION" = "" ]; then
+    echo "❌ Failed to determine version from GitHub"
+    echo "   Please check your internet connection and try again"
+    exit 1
+fi
+
+echo "✓ Found version: ${VERSION}"
+SCRIPT_URL="https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v${VERSION}/uniadblock.py"
+SOURCES_URL="https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v${VERSION}/sources.json"
 
 echo "🚀 Uni-Adblock - One-Command Installer"
 echo "========================================"
@@ -197,7 +209,7 @@ if [ -c /dev/tty ] 2>/dev/null; then
     else
         echo "⚠️  Note: You may need sudo privileges to modify hosts file"
         echo "   If you encounter permission errors, run with sudo:"
-        echo "   sudo bash -c \"\$(curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/install.sh)\""
+        echo "   sudo bash -c \"\$(curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v${VERSION}/install.sh)\""
         echo ""
         "$PYTHON_CMD" "$TEMP_DIR/uniadblock.py" < /dev/tty
     fi
@@ -209,7 +221,7 @@ else
     else
         echo "⚠️  Note: You may need sudo privileges to modify hosts file"
         echo "   If you encounter permission errors, run with sudo:"
-        echo "   sudo bash -c \"\$(curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/install.sh)\""
+        echo "   sudo bash -c \"\$(curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v${VERSION}/install.sh)\""
         echo ""
         "$PYTHON_CMD" "$TEMP_DIR/uniadblock.py"
     fi
