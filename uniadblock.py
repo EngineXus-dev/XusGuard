@@ -757,16 +757,29 @@ def restore_hosts_file(hosts_path):
 def install_hosts_file(hosts_path, content):
     """Install the generated hosts file to system location"""
     try:
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.hosts') as tmp_file:
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.hosts', encoding='utf-8') as tmp_file:
             tmp_file.write(content)
             tmp_path = tmp_file.name
         
         if platform.system() == 'Windows':
-            subprocess.run(['copy', tmp_path, hosts_path], shell=True, check=True)
+            try:
+                shutil.copy2(tmp_path, hosts_path)
+            except PermissionError:
+                try:
+                    import ctypes
+                    if ctypes.windll.shell32.IsUserAnAdmin():
+                        shutil.copy2(tmp_path, hosts_path)
+                    else:
+                        raise PermissionError("Administrator privileges required")
+                except:
+                    raise PermissionError("Administrator privileges required")
         else:
             shutil.copy2(tmp_path, hosts_path)
         
-        os.unlink(tmp_path)
+        try:
+            os.unlink(tmp_path)
+        except:
+            pass
         
         print_success(f"Hosts file installed to {hosts_path}")
         return True
@@ -2347,18 +2360,24 @@ def show_services_in_category(category_name):
             success_count = 0
             fail_count = 0
             
+            all_service_domains = {}
             for service_key, service in category_services:
                 service_domains = get_service_domains_for_service(service_key)
                 if service_domains:
-                    if apply_service_changes(hosts_path, service_domains, new_state, service['name']):
-                        success_count += 1
-                    else:
-                        fail_count += 1
+                    all_service_domains.update(service_domains)
             
-            if success_count > 0:
-                print_success(f"All {category_name} services {action_text} ({success_count} services)")
-            if fail_count > 0:
-                print_warning(f"Failed to update {fail_count} service(s)")
+            if all_service_domains:
+                service_names = ', '.join([s['name'] for _, s in category_services[:3]])
+                if len(category_services) > 3:
+                    service_names += f" and {len(category_services) - 3} more"
+                if apply_service_changes(hosts_path, all_service_domains, new_state, f"All {category_name} services"):
+                    success_count = len(category_services)
+                    print_success(f"All {category_name} services {action_text} ({success_count} services)")
+                else:
+                    fail_count = len(category_services)
+                    print_warning(f"Failed to update {fail_count} service(s)")
+            else:
+                print_warning("No domains found for services in this category")
             
             input(f"\n{Colors.OKCYAN}Press Enter to continue...{Colors.ENDC}")
             continue
