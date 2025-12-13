@@ -1,5 +1,7 @@
 # Uni-Adblock
 
+**Version 1.1.0**
+
 A cross-platform ad blocker for macOS, Linux, and Windows that blocks ads by modifying your system's hosts file. The tool downloads and merges hosts files from multiple trusted sources to create a comprehensive ad-blocking solution.
 
 **Created by: InfoSecREDD**
