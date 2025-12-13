@@ -1,6 +1,6 @@
 # Uni-Adblock
 
-**Version 1.1.0**
+**Version 1.1.1**
 
 A cross-platform ad blocker for macOS, Linux, and Windows that blocks ads by modifying your system's hosts file. The tool downloads and merges hosts files from multiple trusted sources to create a comprehensive ad-blocking solution.
 
@@ -25,11 +25,47 @@ A cross-platform ad blocker for macOS, Linux, and Windows that blocks ads by mod
 
 ## Requirements
 
-- Python 3.6 or higher
+- Python 3.6 or higher *(will be automatically installed if missing)*
 - Administrator/Root privileges (to modify hosts file)
-- Internet connection (for downloading hosts files)
+- Internet connection (for downloading hosts files and Python if needed)
 
 ## Installation
+
+### One-Command Installation (Recommended)
+
+Run Uni-Adblock directly from GitHub with a single command - no manual downloads needed!
+
+**✨ Automatic Python Installation:** The installer scripts will automatically detect and install Python 3 if it's missing on your system!
+
+**📦 Single-File Installers:** The installers automatically download from GitHub and handle Python installation!
+
+**macOS/Linux (One-liner):**
+```bash
+curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.1/install.sh | bash
+```
+
+**macOS/Linux (Download installer first):**
+```bash
+curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.1/install.sh -o install.sh
+chmod +x install.sh
+sudo ./install.sh
+```
+
+**macOS/Linux (Ultra-simple - direct run):**
+```bash
+curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.1/uniadblock.py | sudo python3
+```
+*(Note: This method won't download sources.json, but the script will create a default one)*
+
+**Windows:**
+```cmd
+powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.1/install.bat' -OutFile 'install.bat'; .\install.bat"
+```
+
+Or download `install.bat` and double-click it (Run as Administrator).
+
+
+### Manual Installation
 
 Simply download the `uniadblock.py` file and `sources.json` file - that's all you need!
 
@@ -200,6 +236,8 @@ The script automatically handles SSL certificate issues by attempting to install
 adblock/
 ├── uniadblock.py       # Main script (single file)
 ├── sources.json        # Source configuration (JSON)
+├── install.sh          # One-command installer (macOS/Linux) - downloads from GitHub, auto-installs Python
+├── install.bat         # One-command installer (Windows) - downloads from GitHub, auto-installs Python
 ├── venv/               # Virtual environment (auto-created)
 ├── hosts_backups/      # Timestamped backups (auto-created)
 └── hosts_sources/     # Individual source files (auto-created)
