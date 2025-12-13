@@ -5,8 +5,8 @@
 # Don't exit on error - we handle errors manually
 set +e
 
-SCRIPT_URL="https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.1/uniadblock.py"
-SOURCES_URL="https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.1/sources.json"
+SCRIPT_URL="https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/uniadblock.py"
+SOURCES_URL="https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/sources.json"
 
 echo "🚀 Uni-Adblock - One-Command Installer"
 echo "========================================"
@@ -187,13 +187,30 @@ echo "✓ Download complete"
 echo ""
 
 # Check if running as root/sudo
-if [ "$EUID" -eq 0 ]; then
-    echo "🔐 Running with root privileges"
-    "$PYTHON_CMD" "$TEMP_DIR/uniadblock.py"
+# Ensure stdin is connected to terminal if available (for interactive input)
+# When piping curl to bash, stdin is consumed, so we try to use /dev/tty if available
+if [ -c /dev/tty ] 2>/dev/null; then
+    # Try to use /dev/tty for interactive input
+    if [ "$EUID" -eq 0 ]; then
+        echo "🔐 Running with root privileges"
+        "$PYTHON_CMD" "$TEMP_DIR/uniadblock.py" < /dev/tty
+    else
+        echo "⚠️  Note: You may need sudo privileges to modify hosts file"
+        echo "   If you encounter permission errors, run with sudo:"
+        echo "   sudo bash -c \"\$(curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/install.sh)\""
+        echo ""
+        "$PYTHON_CMD" "$TEMP_DIR/uniadblock.py" < /dev/tty
+    fi
 else
-    echo "⚠️  Note: You may need sudo privileges to modify hosts file"
-    echo "   If you encounter permission errors, run with sudo:"
-    echo "   sudo bash -c \"\$(curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.1/install.sh)\""
-    echo ""
-    "$PYTHON_CMD" "$TEMP_DIR/uniadblock.py"
+    # No TTY available, run normally (Python script will handle non-interactive mode gracefully)
+    if [ "$EUID" -eq 0 ]; then
+        echo "🔐 Running with root privileges"
+        "$PYTHON_CMD" "$TEMP_DIR/uniadblock.py"
+    else
+        echo "⚠️  Note: You may need sudo privileges to modify hosts file"
+        echo "   If you encounter permission errors, run with sudo:"
+        echo "   sudo bash -c \"\$(curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/install.sh)\""
+        echo ""
+        "$PYTHON_CMD" "$TEMP_DIR/uniadblock.py"
+    fi
 fi
