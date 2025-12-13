@@ -1,0 +1,182 @@
+{
+  "1": {
+    "name": "MVPS Hosts",
+    "url": "https://winhelp2002.mvps.org/hosts.txt",
+    "description": "MVPS hosts file (Windows-focused)",
+    "enabled": true
+  },
+  "2": {
+    "name": "Steven Black's Unified Hosts",
+    "url": "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts",
+    "description": "Comprehensive unified hosts file (most popular, macOS-compatible)",
+    "enabled": false
+  },
+  "3": {
+    "name": "AdAway Default Blocklist",
+    "url": "https://adaway.org/hosts.txt",
+    "description": "AdAway default hosts file (Android-focused)",
+    "enabled": false
+  },
+  "4": {
+    "name": "Someone Who Cares",
+    "url": "https://someonewhocares.org/hosts/zero/hosts",
+    "description": "Dan Pollock's hosts file (well-maintained, macOS-compatible)",
+    "enabled": false
+  },
+  "5": {
+    "name": "Yoyo.org / Peter Lowe",
+    "url": "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=hosts&showintro=0&mimetype=plaintext",
+    "description": "Peter Lowe's comprehensive ad server list",
+    "enabled": false
+  },
+  "6": {
+    "name": "Spam404",
+    "url": "https://raw.githubusercontent.com/Spam404/lists/master/main-blacklist.txt",
+    "description": "Spam404 domain blacklist",
+    "enabled": false
+  },
+  "7": {
+    "name": "AdGuard DNS Filter",
+    "url": "https://raw.githubusercontent.com/AdguardTeam/AdguardFilters/master/MobileFilter/sections/adservers.txt",
+    "description": "AdGuard mobile ad servers filter",
+    "enabled": false
+  },
+  "8": {
+    "name": "Unified Hosts (fakenews + gambling + porn)",
+    "url": "https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/fakenews-gambling-porn/hosts",
+    "description": "Steven Black hosts with fakenews, gambling, and porn filters",
+    "enabled": false
+  },
+  "9": {
+    "name": "Goodbye Ads",
+    "url": "https://raw.githubusercontent.com/jerryn70/GoodbyeAds/master/Hosts/GoodbyeAds.txt",
+    "description": "Goodbye Ads comprehensive ad blocking list",
+    "enabled": false
+  },
+  "10": {
+    "name": "1Hosts (Lite)",
+    "url": "https://o0.pages.dev/Lite/hosts.txt",
+    "description": "1Hosts Lite - lightweight ad blocking",
+    "enabled": false
+  },
+  "11": {
+    "name": "1Hosts (Pro)",
+    "url": "https://o0.pages.dev/Pro/hosts.txt",
+    "description": "1Hosts Pro - comprehensive ad blocking",
+    "enabled": false
+  },
+  "12": {
+    "name": "AdGuard Base Filter",
+    "url": "https://raw.githubusercontent.com/AdguardTeam/AdguardFilters/master/BaseFilter/sections/adservers.txt",
+    "description": "AdGuard base filter for ad servers (macOS-compatible)",
+    "enabled": false
+  },
+  "13": {
+    "name": "Disconnect.me Tracking",
+    "url": "https://s3.amazonaws.com/lists.disconnect.me/simple_tracking.txt",
+    "description": "Disconnect.me simple tracking list (macOS-compatible)",
+    "enabled": false
+  },
+  "14": {
+    "name": "Disconnect.me Ads",
+    "url": "https://s3.amazonaws.com/lists.disconnect.me/simple_ad.txt",
+    "description": "Disconnect.me simple ad list (macOS-compatible)",
+    "enabled": false
+  },
+  "15": {
+    "name": "Unified Hosts (social)",
+    "url": "https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/social/hosts",
+    "description": "Steven Black hosts with social media blocking",
+    "enabled": false
+  },
+  "16": {
+    "name": "Unified Hosts (gambling)",
+    "url": "https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/gambling/hosts",
+    "description": "Steven Black hosts with gambling blocking",
+    "enabled": false
+  },
+  "17": {
+    "name": "Unified Hosts (porn)",
+    "url": "https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/porn/hosts",
+    "description": "Steven Black hosts with adult content blocking",
+    "enabled": false
+  },
+  "18": {
+    "name": "Unified Hosts (fakenews)",
+    "url": "https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/fakenews/hosts",
+    "description": "Steven Black hosts with fake news blocking",
+    "enabled": false
+  },
+  "19": {
+    "name": "Phishing Army",
+    "url": "https://phishing.army/download/phishing_army_blocklist_extended.txt",
+    "description": "Phishing Army extended blocklist (anti-phishing/anti-malware)",
+    "enabled": false
+  },
+  "20": {
+    "name": "URLhaus Malware Domains",
+    "url": "https://urlhaus.abuse.ch/downloads/hostfile/",
+    "description": "URLhaus malware domain blocklist (anti-malware/anti-virus)",
+    "enabled": false
+  },
+  "21": {
+    "name": "AdGuard Chinese",
+    "url": "https://raw.githubusercontent.com/AdguardTeam/AdguardFilters/master/ChineseFilter/sections/adservers.txt",
+    "description": "AdGuard Chinese language ad filter",
+    "enabled": false
+  },
+  "22": {
+    "name": "AdGuard German",
+    "url": "https://raw.githubusercontent.com/AdguardTeam/AdguardFilters/master/GermanFilter/sections/adservers.txt",
+    "description": "AdGuard German language ad filter",
+    "enabled": false
+  },
+  "23": {
+    "name": "AdGuard French",
+    "url": "https://raw.githubusercontent.com/AdguardTeam/AdguardFilters/master/FrenchFilter/sections/adservers.txt",
+    "description": "AdGuard French language ad filter",
+    "enabled": false
+  },
+  "24": {
+    "name": "AdGuard Spanish",
+    "url": "https://raw.githubusercontent.com/AdguardTeam/AdguardFilters/master/SpanishFilter/sections/adservers.txt",
+    "description": "AdGuard Spanish language ad filter",
+    "enabled": false
+  },
+  "25": {
+    "name": "AdGuard Japanese",
+    "url": "https://raw.githubusercontent.com/AdguardTeam/AdguardFilters/master/JapaneseFilter/sections/adservers.txt",
+    "description": "AdGuard Japanese language ad filter",
+    "enabled": false
+  },
+  "26": {
+    "name": "AdGuard Dutch",
+    "url": "https://raw.githubusercontent.com/AdguardTeam/AdguardFilters/master/DutchFilter/sections/adservers.txt",
+    "description": "AdGuard Dutch language ad filter",
+    "enabled": false
+  },
+  "27": {
+    "name": "AdGuard Turkish",
+    "url": "https://raw.githubusercontent.com/AdguardTeam/AdguardFilters/master/TurkishFilter/sections/adservers.txt",
+    "description": "AdGuard Turkish language ad filter",
+    "enabled": false
+  },
+  "28": {
+    "name": "Ultimate Hosts Blacklist",
+    "url": "https://raw.githubusercontent.com/Ultimate-Hosts-Blacklist/Ultimate.Hosts.Blacklist/master/hosts/hosts0",
+    "description": "Ultimate Hosts Blacklist - comprehensive blocklist",
+    "enabled": false
+  },
+  "29": {
+    "name": "Feodo Tracker",
+    "url": "https://feodotracker.abuse.ch/downloads/ipblocklist.txt",
+    "description": "Feodo Tracker botnet IP blocklist (anti-malware/anti-botnet)",
+    "enabled": false
+  },
+  "30": {
+    "name": "AdAway Extended",
+    "url": "https://raw.githubusercontent.com/AdAway/adaway.github.io/master/hosts.txt",
+    "description": "AdAway extended hosts file (Android-focused)",
+    "enabled": false
+  }
+}
