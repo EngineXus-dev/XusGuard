@@ -22,6 +22,8 @@ from pathlib import Path
 from datetime import datetime, timedelta
 import tempfile
 
+VERSION = "1.1.3"
+
 
 def find_python_command():
     """Find the appropriate Python command (python3 or python)"""
@@ -929,7 +931,7 @@ def show_menu():
     
     menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  Uni-Adblock - Universal Platform Adblock{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
-    menu_lines.append(f"{Colors.BRIGHT_WHITE}  Created by {Colors.BRIGHT_GREEN}InfoSecREDD{Colors.ENDC} {Colors.BRIGHT_CYAN}v1.1.2{Colors.ENDC}")
+    menu_lines.append(f"{Colors.BRIGHT_WHITE}  Created by {Colors.BRIGHT_GREEN}InfoSecREDD{Colors.ENDC} {Colors.BRIGHT_CYAN}v{VERSION}{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
     
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
@@ -2977,10 +2979,10 @@ def safe_input(prompt=""):
             print_error("When using a one-liner with piping, stdin is not available.")
             print_info("\nPlease use one of these methods instead:")
             print_info("1. Download the script first, then run it:")
-            print_info("   curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/uniadblock.py -o uniadblock.py")
+            print_info(f"   curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v{VERSION}/uniadblock.py -o uniadblock.py")
             print_info("   sudo python3 uniadblock.py")
             print_info("\n2. Use the installer script:")
-            print_info("   curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/install.sh | bash")
+            print_info(f"   curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v{VERSION}/install.sh | bash")
             sys.exit(1)
 
 
@@ -3006,10 +3008,10 @@ def main():
         print_error("When using a one-liner with piping, stdin is not available.")
         print_info("\nPlease use one of these methods instead:")
         print_info("1. Download the script first, then run it:")
-        print_info("   curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/uniadblock.py -o uniadblock.py")
+        print_info(f"   curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v{VERSION}/uniadblock.py -o uniadblock.py")
         print_info("   sudo python3 uniadblock.py")
         print_info("\n2. Use the installer script:")
-        print_info("   curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/install.sh | bash")
+        print_info(f"   curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v{VERSION}/install.sh | bash")
         sys.exit(1)
     
     setup_venv()
