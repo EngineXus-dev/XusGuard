@@ -8,8 +8,8 @@ echo   Uni-Adblock - One-Command Installer
 echo ========================================
 echo.
 
-set SCRIPT_URL=https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.1/uniadblock.py
-set SOURCES_URL=https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.1/sources.json
+set SCRIPT_URL=https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/uniadblock.py
+set SOURCES_URL=https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/sources.json
 
 REM Check for Python in PATH first
 python --version >nul 2>&1
