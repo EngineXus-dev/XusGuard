@@ -929,7 +929,7 @@ def show_menu():
     
     menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  Uni-Adblock - Universal Platform Adblock{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
-    menu_lines.append(f"{Colors.BRIGHT_WHITE}  Created by {Colors.BRIGHT_GREEN}InfoSecREDD{Colors.ENDC} {Colors.BRIGHT_CYAN}v1.1.1{Colors.ENDC}")
+    menu_lines.append(f"{Colors.BRIGHT_WHITE}  Created by {Colors.BRIGHT_GREEN}InfoSecREDD{Colors.ENDC} {Colors.BRIGHT_CYAN}v1.1.2{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
     
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
@@ -2961,9 +2961,56 @@ def remove_redirect_from_hosts(hosts_path, domain, ip):
         return False
 
 
+def safe_input(prompt=""):
+    """Safely handle input() calls, catching EOFError for non-interactive execution"""
+    try:
+        return input(prompt)
+    except EOFError:
+        # Try to use /dev/tty as fallback if stdin is not available
+        try:
+            with open('/dev/tty', 'r') as tty:
+                print(prompt, end='', flush=True)
+                return tty.readline().rstrip('\n')
+        except (OSError, IOError, FileNotFoundError):
+            # /dev/tty not available, show error and exit
+            print_error("\nError: This script requires interactive input (stdin).")
+            print_error("When using a one-liner with piping, stdin is not available.")
+            print_info("\nPlease use one of these methods instead:")
+            print_info("1. Download the script first, then run it:")
+            print_info("   curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/uniadblock.py -o uniadblock.py")
+            print_info("   sudo python3 uniadblock.py")
+            print_info("\n2. Use the installer script:")
+            print_info("   curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/install.sh | bash")
+            sys.exit(1)
+
+
+def is_interactive():
+    """Check if running in interactive mode (stdin is available or /dev/tty is accessible)"""
+    if sys.stdin.isatty():
+        return True
+    # Check if /dev/tty is available as fallback
+    try:
+        with open('/dev/tty', 'r'):
+            return True
+    except (OSError, IOError, FileNotFoundError):
+        return False
+
+
 def main():
     """Main entry point"""
     global HOSTS_SOURCES
+    
+    # Check if running in interactive mode
+    if not is_interactive():
+        print_error("Error: This script requires interactive input (stdin).")
+        print_error("When using a one-liner with piping, stdin is not available.")
+        print_info("\nPlease use one of these methods instead:")
+        print_info("1. Download the script first, then run it:")
+        print_info("   curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/uniadblock.py -o uniadblock.py")
+        print_info("   sudo python3 uniadblock.py")
+        print_info("\n2. Use the installer script:")
+        print_info("   curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v1.1.2/install.sh | bash")
+        sys.exit(1)
     
     setup_venv()
     
@@ -2979,14 +3026,14 @@ def main():
     if not check_root():
         print_warning("Not running with administrator/root privileges.")
         print_warning("You may need elevated privileges to modify the hosts file.")
-        response = input(f"{Colors.WARNING}Continue anyway? (y/n): {Colors.ENDC}").strip().lower()
+        response = safe_input(f"{Colors.WARNING}Continue anyway? (y/n): {Colors.ENDC}").strip().lower()
         if response != 'y':
             print_info("Exiting...")
             sys.exit(0)
     
     while True:
         show_menu()
-        choice = input(f"{Colors.BOLD}Enter your choice: {Colors.ENDC}").strip()
+        choice = safe_input(f"{Colors.BOLD}Enter your choice: {Colors.ENDC}").strip()
         
         if choice == '1':
             install_adblock()
@@ -3006,7 +3053,7 @@ def main():
         elif choice == '6':
             hosts_path = get_hosts_file_path()
             print_warning("This will restore the OS default hosts file (removing all ad-blocking entries).")
-            response = input(f"{Colors.WARNING}Continue? (y/n): {Colors.ENDC}").strip().lower()
+            response = safe_input(f"{Colors.WARNING}Continue? (y/n): {Colors.ENDC}").strip().lower()
             if response == 'y':
                 if restore_from_default_hosts(hosts_path):
                     print_success("Hosts file restored to OS default")
@@ -3038,7 +3085,7 @@ def main():
             print_error("Invalid choice. Please try again.")
         
         if choice != '0':
-            input(f"\n{Colors.OKCYAN}Press Enter to continue...{Colors.ENDC}")
+            safe_input(f"\n{Colors.OKCYAN}Press Enter to continue...{Colors.ENDC}")
 
 
 def cleanup_project(non_interactive=False):
