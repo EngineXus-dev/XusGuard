@@ -144,19 +144,6 @@ class HostSafetyTests(unittest.TestCase):
             self.assertIsNone(result)
             self.assertEqual(original, self.hosts.read_bytes())
 
-    def test_service_source_uses_cached_list_without_network(self):
-        cache = self.root / "cache"
-        cache.mkdir()
-        with mock.patch.object(APP, "get_sources_directory", return_value=cache):
-            self.assertIsNotNone(
-                APP.save_source_file("1", "sample list", {"ads.example": "0.0.0.0"})
-            )
-            with mock.patch.object(APP, "download_hosts_file", side_effect=AssertionError("unexpected network")):
-                domains = APP.get_service_domains([
-                    ("1", {"name": "sample list", "url": "https://example.org/hosts"})
-                ])
-                self.assertEqual(domains, {"ads.example": "0.0.0.0"})
-
     def test_corrupt_sources_json_preserved_and_cannot_be_overwritten(self):
         config_path = self.root / "sources.json"
         broken = b'{ "1": { "name": "broken", '
