@@ -1,8 +1,8 @@
 # 🛡️ XusGuard
 
-**XusGuard v2.0.0 · The EngineXus-dev Hosts Guard**
+**XusGuard v2.0.0**
 
-A personal, cross-platform hosts-file blocker for **Windows, macOS, and Linux**, maintained by **EngineXus-dev**. XusGuard helps block selected advertising and tracking domains using your computer's hosts file. No upstream project download, release lookup, or execution is required.
+A personal, cross-platform hosts-file blocker for **Windows, macOS, and Linux**. XusGuard helps block selected advertising and tracking domains using your computer's hosts file. No upstream project download, release lookup, or execution is required.
 
 > **Security first:** XusGuard changes system-wide DNS behavior. Review the code and enabled blocklists before using administrator/root privileges. Blocklists are third-party data, not inherently trustworthy.
 
