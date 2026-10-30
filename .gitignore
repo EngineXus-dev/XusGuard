@@ -1,0 +1,13 @@
+# Private state or sensitive hosts-file backups
+hosts_backups/
+hosts_sources/
+sources/
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+.DS_Store
+Thumbs.db
