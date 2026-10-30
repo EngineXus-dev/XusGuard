@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Uni-Adblock - Cross-platform ad blocker using hosts files
+XusGuard - Cross-platform ad blocker using hosts files
 Supports macOS, Linux, and Windows
 
-Created by: InfoSecREDD
+Created by: EngineXus-dev
 """
 
 import os
@@ -21,125 +21,14 @@ import time
 from pathlib import Path
 from datetime import datetime, timedelta
 import tempfile
+import ipaddress
+import secrets
+import stat
 
-VERSION = "1.1.3"
-
-
-def find_python_command():
-    """Find the appropriate Python command (python3 or python)"""
-    try:
-        result = subprocess.run(['python3', '--version'], 
-                              capture_output=True, text=True, timeout=2)
-        if result.returncode == 0:
-            return 'python3'
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-    
-    try:
-        result = subprocess.run(['python', '--version'], 
-                              capture_output=True, text=True, timeout=2)
-        if result.returncode == 0:
-            version = result.stdout.strip() or result.stderr.strip()
-            if '3' in version:
-                return 'python'
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-    
-    return sys.executable
+VERSION = "2.0.0"
 
 
-def find_pip_command(python_cmd=None):
-    """Find the appropriate pip command (pip3 or pip)"""
-    if python_cmd:
-        try:
-            result = subprocess.run([python_cmd, '-m', 'pip', '--version'], 
-                                  capture_output=True, text=True, timeout=2)
-            if result.returncode == 0:
-                return [python_cmd, '-m', 'pip']
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            pass
-    
-    try:
-        result = subprocess.run(['pip3', '--version'], 
-                              capture_output=True, text=True, timeout=2)
-        if result.returncode == 0:
-            return ['pip3']
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-    
-    try:
-        result = subprocess.run(['pip', '--version'], 
-                              capture_output=True, text=True, timeout=2)
-        if result.returncode == 0:
-            return ['pip']
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-    
-    if python_cmd:
-        return [python_cmd, '-m', 'pip']
-    
-    return None
 
-
-def setup_venv():
-    """Setup and activate virtual environment if needed"""
-    script_dir = Path(__file__).resolve().parent
-    venv_dir = script_dir / 'venv'
-    
-    if hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix):
-        return True
-    
-    python_cmd = find_python_command()
-    
-    if not venv_dir.exists():
-        print("ℹ Creating virtual environment...", flush=True)
-        try:
-            if python_cmd == sys.executable:
-                python_exec = sys.executable
-            else:
-                python_exec = python_cmd
-            
-            subprocess.run([python_exec, '-m', 'venv', str(venv_dir)], check=True, 
-                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            print("✓ Virtual environment created", flush=True)
-        except subprocess.CalledProcessError as e:
-            print(f"✗ Failed to create virtual environment: {e}", flush=True)
-            print("⚠ Continuing without virtual environment...", flush=True)
-            return True
-    
-    if platform.system() == 'Windows':
-        venv_python = venv_dir / 'Scripts' / 'python.exe'
-        if not venv_python.exists():
-            venv_python = venv_dir / 'Scripts' / 'python3.exe'
-    else:
-        venv_python = venv_dir / 'bin' / 'python'
-        if not venv_python.exists():
-            venv_python = venv_dir / 'bin' / 'python3'
-    
-    if not venv_python.exists():
-        print("⚠ Virtual environment Python not found, continuing without venv...", flush=True)
-        return True
-    
-    try:
-        pip_cmd = find_pip_command(str(venv_python))
-        if pip_cmd:
-            subprocess.run(pip_cmd + ['install', '--upgrade', 'pip', '--quiet'],
-                          check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        else:
-            subprocess.run([str(venv_python), '-m', 'pip', 'install', '--upgrade', 'pip', '--quiet'],
-                          check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    except:
-        pass
-    
-    print("ℹ Activating virtual environment and restarting...", flush=True)
-    try:
-        os.execv(str(venv_python), [str(venv_python)] + sys.argv)
-    except Exception as e:
-        print(f"✗ Failed to restart in virtual environment: {e}", flush=True)
-        print("⚠ Continuing without virtual environment...", flush=True)
-        return True
-    
-    return True
 
 HOSTS_FILE_LOCATIONS = {
     'Darwin': '/etc/hosts',
@@ -216,7 +105,7 @@ def save_sources(sources):
         print_error(f"Failed to save sources.json: {e}")
         return False
 
-HOSTS_SOURCES = load_sources()
+HOSTS_SOURCES = get_default_sources()
 
 
 def get_default_hosts_content():
@@ -389,7 +278,7 @@ def download_hosts_file(url, timeout=60):
             urllib.request.HTTPSHandler(context=ssl.create_default_context()),
             HTTPSOnlyRedirectHandler(),
         )
-        req = urllib.request.Request(url, headers={'User-Agent': 'Uni-Adblock/1.1'})
+        req = urllib.request.Request(url, headers={'User-Agent': 'XusGuard/1.1'})
         with opener.open(req, timeout=timeout) as response:
             if urlsplit(response.geturl()).scheme.lower() != 'https':
                 raise urllib.error.URLError("Non-HTTPS response rejected")
@@ -404,48 +293,57 @@ def download_hosts_file(url, timeout=60):
         return None
 
 
+def normalize_domain(domain):
+    """Return a strict ASCII DNS hostname or None; never accept hosts-file syntax."""
+    if not isinstance(domain, str) or not domain or domain.strip() != domain:
+        return None
+    if domain.endswith('.') or '..' in domain or '/' in domain:
+        return None
+    try:
+        ascii_domain = domain.encode('idna').decode('ascii').lower()
+    except (UnicodeError, UnicodeEncodeError):
+        return None
+    if len(ascii_domain) > 253 or '.' not in ascii_domain:
+        return None
+    if ascii_domain.endswith(('.localhost', '.local', '.home.arpa', '.internal')):
+        return None
+    try:
+        ipaddress.ip_address(ascii_domain)
+        return None
+    except ValueError:
+        pass
+    for label in ascii_domain.split('.'):
+        if not 1 <= len(label) <= 63 or not re.fullmatch(r'[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?', label):
+            return None
+    return ascii_domain
+
+
 def parse_hosts_file(content):
-    """Parse hosts file content and extract valid entries
-    Supports both hosts file format (IP domain) and plain domain lists"""
+    """Parse only valid domain-only lists and sinkhole hosts mappings.
+
+    Ignore invalid hostnames and arbitrary IP redirects supplied by blocklists.
+    """
     entries = []
-    lines = content.split('\n')
-    
-    for line in lines:
-        line = line.strip()
-        if not line or line.startswith('#'):
+    for line in content.splitlines():
+        body = line.split('#', 1)[0].strip()
+        if not body:
             continue
-        
-        parts = line.split()
-        
-        if len(parts) >= 2:
+        parts = body.split()
+        if len(parts) >= 2 and parts[0] in ('0.0.0.0', '127.0.0.1'):
+            candidates = parts[1:]
             ip = parts[0]
-            if ip in ['127.0.0.1', '0.0.0.0']:
-                for hostname in parts[1:]:
-                    hostname = hostname.strip()
-                    if '#' in hostname:
-                        hostname = hostname.split('#')[0].strip()
-                    if hostname:
-                        if '.' in hostname and not hostname.startswith('.') and not hostname.endswith('.'):
-                            entries.append((ip, hostname))
-                continue
-        
-        domain = parts[0] if parts else line
-        domain = domain.strip()
-        domain = domain.rstrip('.,;')
-        if '#' in domain:
-            domain = domain.split('#')[0].strip()
-        
-        if (domain and 
-            '.' in domain and 
-            not domain.startswith('.') and 
-            not domain.endswith('.') and
-            ' ' not in domain and
-            not domain.startswith('http://') and
-            not domain.startswith('https://') and
-            not domain.startswith('ftp://') and
-            '/' not in domain):
-            entries.append(('0.0.0.0', domain))
-    
+        elif len(parts) == 1:
+            candidates = parts
+            ip = '0.0.0.0'
+        else:
+            continue
+        for candidate in candidates:
+            domain = normalize_domain(candidate)
+            if domain:
+                entries.append((ip, domain))
+            if len(entries) > 1000000:
+                print_error("Blocklist exceeds 1,000,000 entries; rejecting it")
+                return []
     return entries
 
 
@@ -469,7 +367,7 @@ def merge_hosts_entries(entries_list):
 def create_hosts_content_by_source(source_entries_dict, header_comment):
     """Create hosts file content with entries organized by source"""
     lines = [header_comment]
-    lines.append(f"# Generated by Uni-Adblock on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append(f"# Generated by XusGuard on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
     all_domains = set()
     for entries in source_entries_dict.values():
@@ -496,7 +394,7 @@ def create_hosts_content_by_source(source_entries_dict, header_comment):
 def create_hosts_content_merged(merged_entries, source_entries_dict, header_comment):
     """Create hosts file content with deduplicated entries from all sources"""
     lines = [header_comment]
-    lines.append(f"# Generated by Uni-Adblock on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append(f"# Generated by XusGuard on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     lines.append(f"# Total unique blocked domains: {len(merged_entries)}")
     lines.append(f"# Sources: {', '.join(sorted(source_entries_dict.keys()))}")
     lines.append("#")
@@ -508,10 +406,19 @@ def create_hosts_content_merged(merged_entries, source_entries_dict, header_comm
 
 
 def get_backup_directory():
-    """Get or create the backup directory"""
-    script_dir = Path(__file__).resolve().parent
-    backup_dir = script_dir / DEFAULT_BACKUP_DIR
-    backup_dir.mkdir(exist_ok=True)
+    """Store backups outside the checkout in a private per-user directory."""
+    if platform.system() == 'Windows':
+        base = Path(os.environ.get('LOCALAPPDATA') or Path.home())
+        backup_dir = base / 'XusGuard' / 'hosts_backups'
+    else:
+        backup_dir = Path.home() / '.local' / 'share' / 'xusguard' / 'hosts_backups'
+    if backup_dir.is_symlink():
+        raise OSError("Backup directory must not be a symbolic link")
+    backup_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if backup_dir.is_symlink():
+        raise OSError("Backup directory must not be a symbolic link")
+    if os.name != 'nt':
+        backup_dir.chmod(0o700)
     return backup_dir
 
 
@@ -547,7 +454,7 @@ def save_source_file(source_id, source_name, entries):
     try:
         lines = []
         lines.append(f"# Source: {source_name}")
-        lines.append(f"# Generated by Uni-Adblock on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        lines.append(f"# Generated by XusGuard on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         lines.append(f"# Total domains: {len(entries)}")
         lines.append("#")
         lines.append("")
@@ -604,27 +511,29 @@ def read_source_name_from_file(file_path):
 
 
 def backup_hosts_file(hosts_path, use_timestamp=True):
-    """Create a backup of the current hosts file"""
-    if not os.path.exists(hosts_path):
-        print_warning(f"Hosts file not found at {hosts_path}, will create new one")
-        return True
-    
-    backup_dir = get_backup_directory()
-    
+    """Fail closed if the hosts file cannot be safely and completely backed up."""
     try:
-        if use_timestamp:
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            hostname = Path(hosts_path).name
-            backup_filename = f"{hostname}_{timestamp}{BACKUP_SUFFIX}"
-            backup_path = backup_dir / backup_filename
-        else:
-            backup_path = Path(hosts_path + BACKUP_SUFFIX)
-        
-        shutil.copy2(hosts_path, backup_path)
+        target = Path(hosts_path)
+        if target.is_symlink() or not target.is_file():
+            raise OSError("Hosts file is missing, not regular, or is a symbolic link")
+        backup_dir = get_backup_directory()
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+        backup_path = backup_dir / (
+            f"{target.name}_{timestamp}_{secrets.token_hex(4)}{BACKUP_SUFFIX}"
+        )
+        with target.open('rb') as src, backup_path.open('xb') as dst:
+            shutil.copyfileobj(src, dst)
+            dst.flush()
+            os.fsync(dst.fileno())
+        if os.name != 'nt':
+            backup_path.chmod(0o600)
+        if backup_path.stat().st_size != target.stat().st_size:
+            backup_path.unlink(missing_ok=True)
+            raise OSError("Backup size verification failed")
         print_success(f"Backup created: {backup_path}")
         return True
-    except Exception as e:
-        print_error(f"Failed to create backup: {e}")
+    except Exception as exc:
+        print_error(f"Backup failed; refusing to modify hosts file: {exc}")
         return False
 
 
@@ -662,9 +571,8 @@ def restore_from_default_hosts(hosts_path):
         return False
     
     try:
-        backup_hosts_file(hosts_path, use_timestamp=True)
-        
-        shutil.copy2(default_path, hosts_path)
+        if not install_hosts_file(hosts_path, default_path.read_text(encoding='utf-8')):
+            return False
         print_success(f"Hosts file restored from OS default: {default_path}")
         return True
     except Exception as e:
@@ -693,7 +601,7 @@ def restore_hosts_file(hosts_path):
     
     menu_lines = []
     
-    menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  Uni-Adblock - Universal Platform Adblock{Colors.ENDC}")
+    menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  XusGuard - Universal Platform Adblock{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
     
     menu_lines.append(f"{Colors.BRIGHT_WHITE}{Colors.BOLD}  Select Backup to Restore{Colors.ENDC}")
@@ -735,9 +643,10 @@ def restore_hosts_file(hosts_path):
         return False
     
     try:
-        backup_hosts_file(hosts_path, use_timestamp=True)
-        
-        shutil.copy2(selected_backup, hosts_path)
+        if Path(selected_backup).is_symlink() or not Path(selected_backup).is_file():
+            return False
+        if not install_hosts_file(hosts_path, Path(selected_backup).read_text(encoding='utf-8')):
+            return False
         print_success(f"Hosts file restored from {selected_backup}")
         return True
     except Exception as e:
@@ -745,87 +654,72 @@ def restore_hosts_file(hosts_path):
         return False
 
 
+MANAGED_START = '# BEGIN XUSGUARD MANAGED'
+MANAGED_END = '# END XUSGUARD MANAGED'
+
+
+def split_managed_section(content):
+    """Return content excluding our section and the previous managed body."""
+    lines = content.splitlines(keepends=True)
+    starts = [i for i, line in enumerate(lines) if line.strip() == MANAGED_START]
+    ends = [i for i, line in enumerate(lines) if line.strip() == MANAGED_END]
+    if not starts and not ends:
+        return content, ''
+    if len(starts) != 1 or len(ends) != 1 or ends[0] <= starts[0]:
+        raise ValueError("Malformed XusGuard markers; refusing to rewrite hosts file")
+    before = ''.join(lines[:starts[0]])
+    managed = ''.join(lines[starts[0] + 1:ends[0]])
+    after = ''.join(lines[ends[0] + 1:])
+    return before + after, managed
+
+
+def replace_managed_section(content, managed_body):
+    """Update only our explicitly bounded section; preserve all other entries."""
+    base, _ = split_managed_section(content)
+    if not isinstance(managed_body, str):
+        raise ValueError("Managed hosts content must be text")
+    return (base.rstrip('\r\n') + '\n\n' + MANAGED_START + '\n' +
+            managed_body.strip('\r\n') + '\n' + MANAGED_END + '\n')
+
+
 def install_hosts_file(hosts_path, content):
-    """Install the generated hosts file to system location"""
-    max_retries = 5
-    retry_delay = 0.5
-    
-    for attempt in range(max_retries):
-        try:
-            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.hosts', encoding='utf-8') as tmp_file:
-                tmp_file.write(content)
-                tmp_path = tmp_file.name
-            
-            if platform.system() == 'Windows':
-                try:
-                    if attempt > 0:
-                        time.sleep(retry_delay * attempt)
-                    
-                    shutil.copy2(tmp_path, hosts_path)
-                except (PermissionError, OSError) as e:
-                    if attempt < max_retries - 1:
-                        if "being used by another process" in str(e).lower() or "used by another program" in str(e).lower():
-                            print_info(f"File is locked, retrying in {retry_delay * (attempt + 1):.1f}s... (attempt {attempt + 1}/{max_retries})")
-                            try:
-                                os.unlink(tmp_path)
-                            except:
-                                pass
-                            continue
-                    try:
-                        import ctypes
-                        if ctypes.windll.shell32.IsUserAnAdmin():
-                            if attempt > 0:
-                                time.sleep(retry_delay * attempt)
-                            shutil.copy2(tmp_path, hosts_path)
-                        else:
-                            raise PermissionError("Administrator privileges required")
-                    except:
-                        raise PermissionError("Administrator privileges required")
-            else:
-                if attempt > 0:
-                    time.sleep(retry_delay * attempt)
-                shutil.copy2(tmp_path, hosts_path)
-            
-            try:
-                os.unlink(tmp_path)
-            except:
-                pass
-            
-            print_success(f"Hosts file installed to {hosts_path}")
-            return True
-        except PermissionError:
-            if attempt < max_retries - 1:
-                print_info(f"Permission denied, retrying... (attempt {attempt + 1}/{max_retries})")
-                time.sleep(retry_delay * (attempt + 1))
-                continue
-            print_error("Permission denied. Please run with administrator/root privileges.")
+    """Back up then stage the full write before replacing the hosts file."""
+    temp_path = None
+    try:
+        target = Path(hosts_path)
+        if target.is_symlink() or not target.is_file():
+            raise OSError("Refusing to change a missing, non-regular or symlink hosts file")
+        if not isinstance(content, str) or '\x00' in content or len(content.encode('utf-8')) > 40 * 1024 * 1024:
+            raise ValueError("Invalid hosts file contents or larger than 40 MiB")
+        if not backup_hosts_file(str(target)):
             return False
-        except (OSError, IOError) as e:
-            if attempt < max_retries - 1:
-                error_msg = str(e).lower()
-                if "being used by another process" in error_msg or "used by another program" in error_msg or "the process cannot access" in error_msg:
-                    print_info(f"File is locked, retrying in {retry_delay * (attempt + 1):.1f}s... (attempt {attempt + 1}/{max_retries})")
-                    try:
-                        os.unlink(tmp_path)
-                    except:
-                        pass
-                    time.sleep(retry_delay * (attempt + 1))
-                    continue
-            print_error(f"Failed to install hosts file: {e}")
+        old_stat = target.stat()
+        with tempfile.NamedTemporaryFile(
+            mode='wb', prefix='.xusguard-', suffix='.tmp',
+            dir=str(target.parent), delete=False
+        ) as tmp:
+            temp_path = Path(tmp.name)
+            tmp.write(content.encode('utf-8'))
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        shutil.copystat(target, temp_path)
+        if os.name != 'nt' and hasattr(os, 'chown'):
+            os.chown(temp_path, old_stat.st_uid, old_stat.st_gid)
+            os.chmod(temp_path, stat.S_IMODE(old_stat.st_mode))
+        # Refuse unsafe in-place fallback if Windows or antivirus blocks replacement.
+        os.replace(temp_path, target)
+        temp_path = None
+        print_success(f"Hosts file updated: {target}")
+        return True
+    except Exception as exc:
+        print_error(f"Safe hosts-file replacement failed: {exc}")
+        return False
+    finally:
+        if temp_path is not None:
             try:
-                os.unlink(tmp_path)
-            except:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
                 pass
-            return False
-        except Exception as e:
-            print_error(f"Failed to install hosts file: {e}")
-            try:
-                os.unlink(tmp_path)
-            except:
-                pass
-            return False
-    
-    return False
 
 
 def get_stats():
@@ -878,7 +772,7 @@ def get_stats():
                 in_adblock_section = False
                 for line in content.split('\n'):
                     line = line.strip()
-                    if '# Uni-Adblock' in line:
+                    if '# XusGuard' in line:
                         in_adblock_section = True
                     elif line and not line.startswith('#') and in_adblock_section:
                         parts = line.split()
@@ -917,9 +811,9 @@ def show_menu():
     
     menu_lines = []
     
-    menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  Uni-Adblock - Universal Platform Adblock{Colors.ENDC}")
+    menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  XusGuard - Universal Platform Adblock{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
-    menu_lines.append(f"{Colors.BRIGHT_WHITE}  Created by {Colors.BRIGHT_GREEN}InfoSecREDD{Colors.ENDC} {Colors.BRIGHT_CYAN}v{VERSION}{Colors.ENDC}")
+    menu_lines.append(f"{Colors.BRIGHT_WHITE}  Created by {Colors.BRIGHT_GREEN}EngineXus-dev{Colors.ENDC} {Colors.BRIGHT_CYAN}v{VERSION}{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
     
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
@@ -960,7 +854,7 @@ def show_sources_menu():
     clear_screen()
     menu_lines = []
     
-    menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  Uni-Adblock - Universal Platform Adblock{Colors.ENDC}")
+    menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  XusGuard - Universal Platform Adblock{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
     
     menu_lines.append(f"{Colors.BRIGHT_WHITE}{Colors.BOLD}  Available Sources{Colors.ENDC}")
@@ -988,7 +882,7 @@ def add_source():
     clear_screen()
     
     menu_lines = []
-    menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  Uni-Adblock - Universal Platform Adblock{Colors.ENDC}")
+    menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  XusGuard - Universal Platform Adblock{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_WHITE}{Colors.BOLD}  Add New Source{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
@@ -1007,8 +901,8 @@ def add_source():
         print_error("Source URL cannot be empty")
         return False
     
-    if not url.startswith(('http://', 'https://')):
-        print_error("URL must start with http:// or https://")
+    if not url.startswith('https://'):
+        print_error("Source URL must use verified HTTPS")
         return False
     
     description = input(f"{Colors.BRIGHT_CYAN}{Colors.BOLD}Description (optional): {Colors.ENDC}").strip()
@@ -1056,7 +950,7 @@ def remove_source():
     
     menu_lines = []
     
-    menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  Uni-Adblock - Universal Platform Adblock{Colors.ENDC}")
+    menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  XusGuard - Universal Platform Adblock{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
     
     menu_lines.append(f"{Colors.BRIGHT_WHITE}{Colors.BOLD}  Remove Source{Colors.ENDC}")
@@ -1119,7 +1013,7 @@ def manage_sources():
         clear_screen()
         menu_lines = []
         
-        menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  Uni-Adblock - Universal Platform Adblock{Colors.ENDC}")
+        menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  XusGuard - Universal Platform Adblock{Colors.ENDC}")
         menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
         
         menu_lines.append(f"{Colors.BRIGHT_WHITE}{Colors.BOLD}  Manage Sources{Colors.ENDC}")
@@ -1179,7 +1073,7 @@ def update_adblock_hosts():
     """Update AdBlock hosts files using enabled sources"""
     clear_screen()
     menu_lines = []
-    menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  Uni-Adblock - Universal Platform Adblock{Colors.ENDC}")
+    menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  XusGuard - Universal Platform Adblock{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_WHITE}{Colors.BOLD}  Update AdBlock Hosts Files{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
@@ -1251,7 +1145,7 @@ def install_adblock():
     """Main function to install adblock using currently enabled sources (uses cached files if less than 1 week old)"""
     clear_screen()
     menu_lines = []
-    menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  Uni-Adblock - Universal Platform Adblock{Colors.ENDC}")
+    menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  XusGuard - Universal Platform Adblock{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_WHITE}{Colors.BOLD}  Installing AdBlock{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
@@ -1341,7 +1235,7 @@ def install_adblock():
     print_info(f"Source files saved in: {get_sources_directory()}")
     
     menu_lines = []
-    menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  Uni-Adblock - Universal Platform Adblock{Colors.ENDC}")
+    menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  XusGuard - Universal Platform Adblock{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_WHITE}{Colors.BOLD}  Installation Ready{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
@@ -1376,29 +1270,19 @@ def install_adblock():
             
             merged_all, _ = merge_hosts_entries(all_entries_list)
             
-            header = f"# Uni-Adblock - Blocked domains\n"
+            header = f"# XusGuard - Blocked domains\n"
             hosts_content = create_hosts_content_merged(merged_all, source_entries_dict, header)
             
             hosts_path = get_hosts_file_path()
             
-            if not backup_hosts_file(hosts_path, use_timestamp=True):
-                response = input(f"{Colors.WARNING}Continue without backup? (y/n): {Colors.ENDC}").strip().lower()
-                if response != 'y':
-                    return True
-            
-            original_content = ""
-            if os.path.exists(hosts_path):
-                try:
-                    with open(hosts_path, 'r', encoding='utf-8', errors='ignore') as f:
-                        original_lines = f.readlines()
-                        for line in original_lines:
-                            if not line.strip().startswith('# Uni-Adblock'):
-                                original_content += line
-                except Exception as e:
-                    print_warning(f"Could not read original hosts file: {e}")
-            
-            final_content = original_content.rstrip() + '\n\n' + hosts_content
-            
+            try:
+                with open(hosts_path, 'r', encoding='utf-8', errors='replace') as f:
+                    original_content = f.read()
+                final_content = replace_managed_section(original_content, hosts_content)
+            except (OSError, ValueError) as e:
+                print_error(f"Refusing unsafe hosts update: {e}")
+                return False
+
             if install_hosts_file(hosts_path, final_content):
                 print_success("AdBlock installed successfully!")
                 print_info("You may need to flush your DNS cache for changes to take effect.")
@@ -1413,7 +1297,7 @@ def flush_dns_cache():
     system = platform.system()
     
     menu_lines = []
-    menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  Uni-Adblock - Universal Platform Adblock{Colors.ENDC}")
+    menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  XusGuard - Universal Platform Adblock{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_WHITE}{Colors.BOLD}  Flush DNS Cache{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
@@ -1508,91 +1392,27 @@ def get_service_domains(matching_sources):
 
 
 def apply_service_changes(hosts_path, service_domains, enable, service_name):
-    """Apply service blocking changes to the hosts file"""
-    if not os.path.exists(hosts_path):
-        print_error(f"Hosts file not found at {hosts_path}")
-        return False
-    
+    """Change only the marked managed section, leaving user entries untouched."""
     try:
-        with open(hosts_path, 'r', encoding='utf-8', errors='ignore') as f:
-            content = f.read()
-        
-        lines = content.split('\n')
-        adblock_section_start = None
-        original_lines = []
-        adblock_lines = []
-        
-        for i, line in enumerate(lines):
-            if '# Uni-Adblock' in line and adblock_section_start is None:
-                adblock_section_start = i
-                adblock_lines.append(line)
-            elif adblock_section_start is not None:
-                stripped = line.strip()
-                if stripped.startswith(('0.0.0.0', '127.0.0.1')):
-                    adblock_lines.append(line)
-                elif stripped.startswith('#'):
-                    adblock_lines.append(line)
-                elif stripped == '':
-                    adblock_lines.append(line)
-                else:
-                    break
-        
-        if adblock_section_start is not None:
-            original_lines = lines[:adblock_section_start]
-        else:
-            original_lines = lines
-        
-        adblock_entries = {}
-        for line in adblock_lines:
-            parts = line.strip().split()
-            if len(parts) >= 2 and parts[0] in ['0.0.0.0', '127.0.0.1']:
-                domain = parts[1].strip()
-                if domain:
-                    adblock_entries[domain] = parts[0]
-        
-        if enable:
-            added_count = 0
-            for domain, ip in service_domains.items():
-                if domain not in adblock_entries:
-                    adblock_entries[domain] = ip
-                    added_count += 1
-            print_info(f"Adding {added_count} domains for {service_name} blocking")
-        else:
-            removed_count = 0
-            for domain in service_domains.keys():
-                if domain in adblock_entries:
-                    del adblock_entries[domain]
-                    removed_count += 1
-            print_info(f"Removing {removed_count} domains for {service_name} blocking")
-        
-        original_content = '\n'.join(original_lines).rstrip()
-        
-        if adblock_entries:
-            header = f"# Uni-Adblock - Blocked domains\n"
-            adblock_content = header
-            
-            for domain in sorted(adblock_entries.keys()):
-                adblock_content += f"{adblock_entries[domain]} {domain}\n"
-            
-            final_content = original_content + '\n\n' + adblock_content.rstrip()
-        else:
-            final_content = original_content
-        
-        if not backup_hosts_file(hosts_path, use_timestamp=True):
-            response = input(f"{Colors.WARNING}Continue without backup? (y/n): {Colors.ENDC}").strip().lower()
-            if response != 'y':
-                return False
-        
-        if install_hosts_file(hosts_path, final_content):
-            return True
-        else:
-            return False
-            
-    except PermissionError:
-        print_error("Permission denied. Please run with administrator/root privileges.")
-        return False
-    except Exception as e:
-        print_error(f"Failed to update hosts file: {e}")
+        with open(hosts_path, 'r', encoding='utf-8', errors='replace') as f:
+            original = f.read()
+        base, managed = split_managed_section(original)
+        existing, _ = merge_hosts_entries([parse_hosts_file(managed)])
+        for domain, ip in service_domains.items():
+            normalized = normalize_domain(domain)
+            if not normalized:
+                continue
+            if enable:
+                existing[normalized] = '0.0.0.0'
+            else:
+                existing.pop(normalized, None)
+        body = '# XusGuard - Blocked domains\n' + ''.join(
+            f"0.0.0.0\t{domain}\n" for domain in sorted(existing)
+        )
+        # Pass the complete original to preserve any previous marked section.
+        return install_hosts_file(hosts_path, replace_managed_section(original, body))
+    except (OSError, ValueError) as exc:
+        print_error(f"Failed to update service blocking safely: {exc}")
         return False
 
 
@@ -2282,7 +2102,7 @@ def show_category_menu():
     ]
     
     menu_lines = []
-    menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  Uni-Adblock - Universal Platform Adblock{Colors.ENDC}")
+    menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  XusGuard - Universal Platform Adblock{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_WHITE}{Colors.BOLD}  Block Services - Categories{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
@@ -2320,7 +2140,7 @@ def show_services_in_category(category_name):
     while True:
         clear_screen()
         menu_lines = []
-        menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  Uni-Adblock - Universal Platform Adblock{Colors.ENDC}")
+        menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  XusGuard - Universal Platform Adblock{Colors.ENDC}")
         menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
         menu_lines.append(f"{Colors.BRIGHT_WHITE}{Colors.BOLD}  {category_name} Services{Colors.ENDC}")
         menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
@@ -2508,7 +2328,7 @@ def manage_service_blocking():
     
     while True:
         menu_lines = []
-        menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  Uni-Adblock - Universal Platform Adblock{Colors.ENDC}")
+        menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  XusGuard - Universal Platform Adblock{Colors.ENDC}")
         menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
         menu_lines.append(f"{Colors.BRIGHT_WHITE}{Colors.BOLD}  Block Services{Colors.ENDC}")
         menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
@@ -2645,7 +2465,7 @@ def view_hosts_file():
         return
     
     menu_lines = []
-    menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  Uni-Adblock - Universal Platform Adblock{Colors.ENDC}")
+    menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  XusGuard - Universal Platform Adblock{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_WHITE}{Colors.BOLD}  Current Hosts File{Colors.ENDC}")
     menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
@@ -2700,7 +2520,7 @@ def manage_domain_redirects():
                 return False
         
         menu_lines = []
-        menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  Uni-Adblock - Universal Platform Adblock{Colors.ENDC}")
+        menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  XusGuard - Universal Platform Adblock{Colors.ENDC}")
         menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
         menu_lines.append(f"{Colors.BRIGHT_WHITE}{Colors.BOLD}  Domain Redirects{Colors.ENDC}")
         menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
@@ -2736,7 +2556,7 @@ def manage_domain_redirects():
         elif choice == '1':
             clear_screen()
             menu_lines = []
-            menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  Uni-Adblock - Universal Platform Adblock{Colors.ENDC}")
+            menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  XusGuard - Universal Platform Adblock{Colors.ENDC}")
             menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
             menu_lines.append(f"{Colors.BRIGHT_WHITE}{Colors.BOLD}  Add Domain Redirect{Colors.ENDC}")
             menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
@@ -2798,7 +2618,7 @@ def manage_domain_redirects():
             
             clear_screen()
             menu_lines = []
-            menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  Uni-Adblock - Universal Platform Adblock{Colors.ENDC}")
+            menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  XusGuard - Universal Platform Adblock{Colors.ENDC}")
             menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
             menu_lines.append(f"{Colors.BRIGHT_WHITE}{Colors.BOLD}  Remove Domain Redirect{Colors.ENDC}")
             menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
@@ -2853,101 +2673,57 @@ def manage_domain_redirects():
 
 
 def add_redirect_to_hosts(hosts_path, domain, ip):
-    """Add a domain redirect to the hosts file"""
+    """Add a clearly marked redirect, without rewriting unrelated entries."""
+    domain = normalize_domain(domain)
     try:
-        if not backup_hosts_file(hosts_path, use_timestamp=True):
-            response = input(f"{Colors.WARNING}Continue without backup? (y/n): {Colors.ENDC}").strip().lower()
-            if response != 'y':
-                return False
-        
-        if os.path.exists(hosts_path):
-            with open(hosts_path, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read()
-        else:
-            content = get_default_hosts_content()
-        
-        lines = content.split('\n')
-        
-        for line in lines:
-            parts = line.strip().split()
-            if len(parts) >= 2 and parts[1] == domain:
-                if parts[0] == ip:
-                    print_warning(f"Redirect already exists: {domain} → {ip}")
-                    return True
-                else:
-                    print_info(f"Updating existing redirect: {domain} → {ip}")
-                    lines = [l for l in lines if not (l.strip().split()[1] == domain if len(l.strip().split()) >= 2 else False)]
-                    break
-        
-        redirect_line = f"{ip}\t{domain}"
-        
-        insert_idx = len(lines)
-        for i, line in enumerate(lines):
-            if line.strip().startswith('# Uni-Adblock'):
-                insert_idx = i
-                break
-        
-        lines.insert(insert_idx, redirect_line)
-        
-        with open(hosts_path, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(lines))
-            if not lines[-1].endswith('\n'):
-                f.write('\n')
-        
-        return True
-    
-    except PermissionError:
-        print_error("Permission denied. Please run with administrator/root privileges.")
-        return False
-    except Exception as e:
-        print_error(f"Failed to add redirect: {e}")
+        address = str(ipaddress.ip_address(ip))
+        if not domain:
+            raise ValueError("Invalid DNS hostname")
+        with open(hosts_path, 'r', encoding='utf-8', errors='replace') as f:
+            content = f.read()
+        marker = f"# XusGuard redirect: {domain}"
+        lines = content.splitlines()
+        filtered = []
+        index = 0
+        while index < len(lines):
+            if lines[index].strip() == marker:
+                index += 2
+            else:
+                filtered.append(lines[index])
+                index += 1
+        filtered.extend([marker, f"{address}\t{domain}"])
+        return install_hosts_file(hosts_path, '\n'.join(filtered).rstrip('\n') + '\n')
+    except (OSError, ValueError) as exc:
+        print_error(f"Failed to add redirect safely: {exc}")
         return False
 
 
 def remove_redirect_from_hosts(hosts_path, domain, ip):
-    """Remove a domain redirect from the hosts file"""
+    """Remove only a redirect previously marked as owned by XusGuard."""
+    domain = normalize_domain(domain)
     try:
-        if not backup_hosts_file(hosts_path, use_timestamp=True):
-            response = input(f"{Colors.WARNING}Continue without backup? (y/n): {Colors.ENDC}").strip().lower()
-            if response != 'y':
-                return False
-        
-        with open(hosts_path, 'r', encoding='utf-8', errors='ignore') as f:
-            lines = f.readlines()
-        
-        new_lines = []
+        if not domain:
+            raise ValueError("Invalid DNS hostname")
+        marker = f"# XusGuard redirect: {domain}"
+        with open(hosts_path, 'r', encoding='utf-8', errors='replace') as f:
+            lines = f.read().splitlines()
+        filtered = []
         removed = False
-        for line in lines:
-            stripped = line.strip()
-            if not stripped or stripped.startswith('#'):
-                new_lines.append(line.rstrip('\n'))
-                continue
-            
-            parts = stripped.split()
-            if len(parts) >= 2:
-                line_domain = parts[1]
-                line_ip = parts[0]
-                if line_domain == domain and line_ip == ip:
-                    removed = True
-                    continue
-            new_lines.append(line.rstrip('\n'))
-        
+        i = 0
+        while i < len(lines):
+            if (lines[i].strip() == marker and i + 1 < len(lines)
+                    and lines[i + 1].strip() == f"{ip}\t{domain}"):
+                i += 2
+                removed = True
+            else:
+                filtered.append(lines[i])
+                i += 1
         if not removed:
-            print_warning(f"Redirect not found: {domain} → {ip}")
+            print_warning("No matching XusGuard-owned redirect found")
             return False
-        
-        with open(hosts_path, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(new_lines))
-            if new_lines:
-                f.write('\n')
-        
-        return True
-    
-    except PermissionError:
-        print_error("Permission denied. Please run with administrator/root privileges.")
-        return False
-    except Exception as e:
-        print_error(f"Failed to remove redirect: {e}")
+        return install_hosts_file(hosts_path, '\n'.join(filtered).rstrip('\n') + '\n')
+    except (OSError, ValueError) as exc:
+        print_error(f"Failed to remove redirect safely: {exc}")
         return False
 
 
@@ -2967,10 +2743,10 @@ def safe_input(prompt=""):
             print_error("When using a one-liner with piping, stdin is not available.")
             print_info("\nPlease use one of these methods instead:")
             print_info("1. Download the script first, then run it:")
-            print_info(f"   curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v{VERSION}/uniadblock.py -o uniadblock.py")
-            print_info("   sudo python3 uniadblock.py")
+            print_info(f"   curl -sSL https://raw.githubusercontent.com/EngineXus-dev/XusGuard/refs/tags/v{VERSION}/uniadblock.py -o uniadblock.py")
+            print_info("   Elevate only when writing the system hosts file.")
             print_info("\n2. Use the installer script:")
-            print_info(f"   curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v{VERSION}/install.sh | bash")
+            print_info(f"   curl -sSL https://raw.githubusercontent.com/EngineXus-dev/XusGuard/refs/tags/v{VERSION}/install.sh | bash")
             sys.exit(1)
 
 
@@ -2996,13 +2772,11 @@ def main():
         print_error("When using a one-liner with piping, stdin is not available.")
         print_info("\nPlease use one of these methods instead:")
         print_info("1. Download the script first, then run it:")
-        print_info(f"   curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v{VERSION}/uniadblock.py -o uniadblock.py")
-        print_info("   sudo python3 uniadblock.py")
+        print_info(f"   curl -sSL https://raw.githubusercontent.com/EngineXus-dev/XusGuard/refs/tags/v{VERSION}/uniadblock.py -o uniadblock.py")
+        print_info("   Elevate only when writing the system hosts file.")
         print_info("\n2. Use the installer script:")
-        print_info(f"   curl -sSL https://raw.githubusercontent.com/InfoSecREDD/Uni-Adblock/refs/tags/v{VERSION}/install.sh | bash")
+        print_info(f"   curl -sSL https://raw.githubusercontent.com/EngineXus-dev/XusGuard/refs/tags/v{VERSION}/install.sh | bash")
         sys.exit(1)
-    
-    setup_venv()
     
     HOSTS_SOURCES = load_sources()
     
@@ -3079,185 +2853,21 @@ def main():
 
 
 def cleanup_project(non_interactive=False):
-    """Clean up project files for distribution (removes venv, backups, cached sources, etc.)"""
-    if not non_interactive:
-        clear_screen()
-        
-        menu_lines = []
-        menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  Uni-Adblock - Universal Platform Adblock{Colors.ENDC}")
-        menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
-        menu_lines.append(f"{Colors.BRIGHT_WHITE}{Colors.BOLD}  Project Cleanup{Colors.ENDC}")
-        menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
-        menu_lines.append("")
-        menu_lines.append(f"{Colors.WHITE}  This will remove:{Colors.ENDC}")
-        menu_lines.append(f"{Colors.BRIGHT_RED}  • Virtual environment (venv/){Colors.ENDC}")
-        menu_lines.append(f"{Colors.BRIGHT_RED}  • Hosts file backups ({DEFAULT_BACKUP_DIR}/){Colors.ENDC}")
-        menu_lines.append(f"{Colors.BRIGHT_RED}  • Cached source files ({SOURCES_DIR}/){Colors.ENDC}")
-        menu_lines.append(f"{Colors.BRIGHT_RED}  • Python cache (__pycache__/ and *.pyc files){Colors.ENDC}")
-        menu_lines.append(f"{Colors.BRIGHT_RED}  • Generator scripts (if any){Colors.ENDC}")
-        menu_lines.append(f"{Colors.BRIGHT_RED}  • OS temporary files (.DS_Store, Thumbs.db){Colors.ENDC}")
-        menu_lines.append("")
-        menu_lines.append(f"{Colors.WHITE}  This will reset:{Colors.ENDC}")
-        menu_lines.append(f"{Colors.BRIGHT_YELLOW}  • sources.json (all sources disabled except MVPS){Colors.ENDC}")
-        menu_lines.append("")
-        menu_lines.append(f"{Colors.WARNING}  WARNING: This action cannot be undone!{Colors.ENDC}")
-        menu_lines.append("")
-        menu_lines.append("")
-        menu_lines.append(f"{Colors.BRIGHT_RED}{Colors.BOLD}  0.{Colors.ENDC}{Colors.BRIGHT_WHITE} Cancel{Colors.ENDC}")
-        
-        print()
-        print_boxed_menu(menu_lines, width=70)
-        print()
-        
-        try:
-            response = input(f"{Colors.BRIGHT_CYAN}{Colors.BOLD}Are you sure you want to clean up? Type 'yes' to confirm: {Colors.ENDC}").strip().lower()
-            
-            if response != 'yes':
-                print_info("Cleanup cancelled.")
-                return False
-        except (EOFError, KeyboardInterrupt):
-            print_info("Cleanup cancelled.")
-            return False
-    else:
-        print_info("Running cleanup in non-interactive mode...")
-    
-    print_info("Starting cleanup...")
-    
-    script_dir = Path(__file__).resolve().parent
-    removed_items = []
-    errors = []
-    
-    venv_path = script_dir / 'venv'
-    if venv_path.exists():
-        try:
-            shutil.rmtree(venv_path)
-            removed_items.append('venv/')
-            print_success("Removed virtual environment")
-        except Exception as e:
-            errors.append(f"venv/: {e}")
-            print_error(f"Failed to remove venv/: {e}")
-    
-    backup_dir = script_dir / DEFAULT_BACKUP_DIR
-    if backup_dir.exists():
-        try:
-            shutil.rmtree(backup_dir)
-            removed_items.append(f'{DEFAULT_BACKUP_DIR}/')
-            print_success(f"Removed hosts file backups ({DEFAULT_BACKUP_DIR}/)")
-        except Exception as e:
-            errors.append(f"{DEFAULT_BACKUP_DIR}/: {e}")
-            print_error(f"Failed to remove {DEFAULT_BACKUP_DIR}/: {e}")
-    
-    sources_dir = script_dir / SOURCES_DIR
-    if sources_dir.exists():
-        try:
-            shutil.rmtree(sources_dir)
-            removed_items.append(f'{SOURCES_DIR}/')
-            print_success(f"Removed cached source files ({SOURCES_DIR}/)")
-        except Exception as e:
-            errors.append(f"{SOURCES_DIR}/: {e}")
-            print_error(f"Failed to remove {SOURCES_DIR}/: {e}")
-    
-    old_sources_dir = script_dir / 'sources'
-    if old_sources_dir.exists():
-        try:
-            shutil.rmtree(old_sources_dir)
-            removed_items.append('sources/')
-            print_success("Removed cached source files (sources/)")
-        except Exception as e:
-            errors.append(f"sources/: {e}")
-            print_error(f"Failed to remove sources/: {e}")
-    
-    pycache_dir = script_dir / '__pycache__'
-    if pycache_dir.exists():
-        try:
-            shutil.rmtree(pycache_dir)
-            removed_items.append('__pycache__/')
-            print_success("Removed Python cache")
-        except Exception as e:
-            errors.append(f"__pycache__/: {e}")
-            print_error(f"Failed to remove __pycache__/: {e}")
-    
-    # Remove individual .pyc files
-    for pyc_file in script_dir.glob('*.pyc'):
-        try:
-            pyc_file.unlink()
-            removed_items.append(str(pyc_file.name))
-        except Exception as e:
-            errors.append(f"{pyc_file.name}: {e}")
-    
-    # Remove generator scripts if they exist
-    generator_scripts = [
-        'create_single_file_installers.sh',
-        'create_single_file_installers_fixed.sh',
-        'generate_standalone_installers.py'
-    ]
-    for gen_script in generator_scripts:
-        gen_path = script_dir / gen_script
-        if gen_path.exists():
-            try:
-                gen_path.unlink()
-                removed_items.append(gen_script)
-                print_success(f"Removed generator script: {gen_script}")
-            except Exception as e:
-                errors.append(f"{gen_script}: {e}")
-    
-    # Remove OS-specific temporary files
-    ds_store = script_dir / '.DS_Store'
-    if ds_store.exists():
-        try:
-            ds_store.unlink()
-            removed_items.append('.DS_Store')
-        except Exception as e:
-            errors.append(f".DS_Store: {e}")
-    
-    thumbs_db = script_dir / 'Thumbs.db'
-    if thumbs_db.exists():
-        try:
-            thumbs_db.unlink()
-            removed_items.append('Thumbs.db')
-        except Exception as e:
-            errors.append(f"Thumbs.db: {e}")
-    
-    sources_json_path = get_sources_json_path()
-    if sources_json_path.exists():
-        try:
-            sources = load_sources()
-            mvps_key = None
-            
-            for key, source in sources.items():
-                if 'mvps' in source.get('name', '').lower() or 'mvps' in source.get('url', '').lower():
-                    mvps_key = key
-                    break
-            
-            for key, source in sources.items():
-                if key == mvps_key:
-                    source['enabled'] = True
-                else:
-                    source['enabled'] = False
-            
-            if save_sources(sources):
-                removed_items.append('sources.json (reset to defaults)')
-                print_success("Reset sources.json (all disabled except MVPS)")
-            else:
-                errors.append("sources.json: Failed to save reset")
-        except Exception as e:
-            errors.append(f"sources.json: {e}")
-            print_error(f"Failed to reset sources.json: {e}")
-    
-    print()
-    if removed_items:
-        print_success(f"Cleanup complete! Removed {len(removed_items)} item(s):")
-        for item in removed_items:
-            print_info(f"  • {item}")
-    
-    if errors:
-        print_warning(f"Encountered {len(errors)} error(s) during cleanup:")
-        for error in errors:
-            print_error(f"  • {error}")
-    
-    if not removed_items and not errors:
-        print_info("Nothing to clean up - project is already clean!")
-    
+    """Only clear cached downloaded blocklists after explicit confirmation.
+
+    Backups, source preferences and virtual environments are NEVER deleted here.
+    """
+    if non_interactive:
+        print_error("Non-interactive cleanup disabled; backups are never auto-deleted.")
+        return False
+    response = safe_input("Delete only cached downloaded source files? Type 'yes': ").strip().lower()
+    if response != 'yes':
+        return False
+    cache_dir = get_sources_directory()
+    for cached in cache_dir.glob('*.hosts'):
+        if not cached.is_symlink() and cached.is_file():
+            cached.unlink()
+    print_success("Cached source files removed. Backups and settings were preserved.")
     return True
 
 
