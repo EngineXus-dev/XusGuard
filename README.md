@@ -6,6 +6,35 @@ A personal, cross-platform hosts-file blocker for **Windows, macOS, and Linux**.
 
 > **Security first:** XusGuard changes system-wide DNS behavior. Review the code and enabled blocklists before using administrator/root privileges. Blocklists are third-party data, not inherently trustworthy.
 
+## Desktop GUI screenshots
+
+Explore the native XusGuard interface. Select an image to view it at full resolution.
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <a href="docs/screenshots/dashboard.png"><img src="docs/screenshots/dashboard.png" alt="XusGuard Dashboard: hosts-file status, blocked rules and verified backups" width="100%"></a>
+      <br><strong>Dashboard</strong><br>Hosts-file status and backup overview
+    </td>
+    <td width="50%" align="center">
+      <a href="docs/screenshots/blocklists.png"><img src="docs/screenshots/blocklists.png" alt="XusGuard Blocklists: opt-in source selection and downloading" width="100%"></a>
+      <br><strong>Blocklists</strong><br>Select and download trusted sources
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <a href="docs/screenshots/services.png"><img src="docs/screenshots/services.png" alt="XusGuard Services: optional service-blocking controls" width="100%"></a>
+      <br><strong>Services</strong><br>Optional app and website blocking
+    </td>
+    <td width="50%" align="center">
+      <a href="docs/screenshots/recovery.png"><img src="docs/screenshots/recovery.png" alt="XusGuard Recovery: inspected SHA-256 backups and guarded restore" width="100%"></a>
+      <br><strong>Recovery</strong><br>Verified backups and safe rollback
+    </td>
+  </tr>
+</table>
+
+<sub>All four PNG screenshots were rebuilt with identical pixels and no embedded metadata. Screenshots may differ slightly from newer builds.</sub>
+
 ## What makes this edition different?
 
 - **Local-only launchers:** `install.bat` and `install.sh` run the checked-out Python file. They never download and execute remote Python code or silently install packages.
