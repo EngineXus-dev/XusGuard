@@ -1379,1100 +1379,195 @@ def flush_dns_cache():
     return success
 
 
-def get_service_domains(matching_sources):
-    """Load enabled service lists without trusting a symlinked or empty cache."""
-    all_domains = {}
-    for source_key, source in matching_sources:
-        name = source['name']
-        cached_entries = None
-        if is_source_cached(name):
-            file_path = get_source_file_path(name)
-            try:
-                with open(file_path, 'r', encoding='utf-8', errors='replace') as source_file:
-                    cached_entries = parse_hosts_file(source_file.read())
-            except OSError as exc:
-                print_warning(f"Could not read cached file for {name}: {exc}")
-        if cached_entries:
-            merged, _ = merge_hosts_entries([cached_entries])
-            all_domains.update(merged)
-            continue
-        content = download_hosts_file(source['url'])
-        if content is None:
-            print_warning(f"No verified service list for {name}")
-            continue
-        entries = parse_hosts_file(content)
-        if not entries:
-            print_warning(f"No usable hosts entries in service list {name}")
-            continue
-        merged, _ = merge_hosts_entries([entries])
-        all_domains.update(merged)
-        save_source_file(source_key, name, merged)
-    return all_domains
+SERVICE_START = '# BEGIN XUSGUARD SERVICES'
+SERVICE_END = '# END XUSGUARD SERVICES'
+
+
+def split_service_section(content):
+    """Return the unrelated file text and the bounded service-rule section."""
+    lines = content.splitlines(keepends=True)
+    start = [i for i, line in enumerate(lines) if line.strip() == SERVICE_START]
+    end = [i for i, line in enumerate(lines) if line.strip() == SERVICE_END]
+    if not start and not end:
+        return content, ''
+    if len(start) != 1 or len(end) != 1 or end[0] <= start[0]:
+        raise ValueError("Malformed XusGuard service markers; refusing modification")
+    return ''.join(lines[:start[0]] + lines[end[0] + 1:]), ''.join(lines[start[0] + 1:end[0]])
+
+
+def get_service_blocked_domains(content):
+    _, section = split_service_section(content)
+    return set(dict.fromkeys(host for _, host in parse_hosts_file(section)))
+
+
+def update_service_section(content, blocked_domains):
+    base, _ = split_service_section(content)
+    if not blocked_domains:
+        return base.rstrip('\\r\\n') + '\\n'
+    entries = []
+    for domain in sorted(blocked_domains):
+        normalized = normalize_domain(domain)
+        if domain != normalized:
+            raise ValueError(f"Invalid service domain: {domain}")
+        entries.append(f"0.0.0.0\\t{domain}")
+    return (base.rstrip('\\r\\n') + '\\n\\n' + SERVICE_START + '\\n'
+            + '\\n'.join(entries) + '\\n' + SERVICE_END + '\\n')
 
 
 def apply_service_changes(hosts_path, service_domains, enable, service_name):
-    """Change only the marked managed section, leaving user entries untouched."""
+    """Write only the dedicated service section; never remove third-party blocks."""
     try:
-        with open(hosts_path, 'r', encoding='utf-8', errors='replace') as f:
-            original = f.read()
-        base, managed = split_managed_section(original)
-        existing, _ = merge_hosts_entries([parse_hosts_file(managed)])
-        for domain, ip in service_domains.items():
+        original = Path(hosts_path).read_text(encoding='utf-8', errors='replace')
+        existing = get_service_blocked_domains(original)
+        for domain in service_domains:
             normalized = normalize_domain(domain)
-            if not normalized:
-                continue
+            if normalized != domain:
+                raise ValueError(f"Invalid service domain: {domain}")
             if enable:
-                existing[normalized] = '0.0.0.0'
+                existing.add(domain)
             else:
-                existing.pop(normalized, None)
-        body = '# XusGuard - Blocked domains\n' + ''.join(
-            f"0.0.0.0\t{domain}\n" for domain in sorted(existing)
-        )
-        # Pass the complete original to preserve any previous marked section.
-        return install_hosts_file(hosts_path, replace_managed_section(original, body))
+                existing.discard(domain)
+        revised = update_service_section(original, existing)
+        if revised == original:
+            return True
+        return install_hosts_file(hosts_path, revised)
     except (OSError, ValueError) as exc:
-        print_error(f"Failed to update service blocking safely: {exc}")
+        print_error(f"Cannot modify service rules safely: {exc}")
         return False
+
+def load_service_catalog():
+    """Load the opt-in access-blocking catalog; never auto-download services."""
+    path = Path(__file__).resolve().parent / 'services.json'
+    if path.is_symlink():
+        raise ValueError("Refusing symlinked services catalog")
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Could not load services.json: {exc}") from exc
+    if not isinstance(data, dict) or data.get('schema_version') != 1:
+        raise ValueError("Unsupported services.json schema")
+    categories = data.get('categories')
+    services = data.get('services')
+    if (not isinstance(categories, list) or not 1 <= len(categories) <= 12
+            or not all(isinstance(c, str) and c and len(c) <= 60 for c in categories)
+            or len(categories) != len(set(categories))):
+        raise ValueError("Invalid service categories")
+    if not isinstance(services, list) or not 1 <= len(services) <= 100:
+        raise ValueError("Invalid service collection")
+    names = set()
+    catalog = {}
+    for idx, item in enumerate(services, 1):
+        if not isinstance(item, dict):
+            raise ValueError("Invalid service item")
+        name, category, domains = item.get('name'), item.get('category'), item.get('domains')
+        if (not isinstance(name, str) or not name or len(name) > 80
+                or safe_comment(name) != name or name.casefold() in names
+                or category not in categories or not isinstance(domains, list)
+                or not 1 <= len(domains) <= 40):
+            raise ValueError(f"Invalid service definition #{idx}")
+        if not all(isinstance(d, str) and normalize_domain(d) == d for d in domains):
+            raise ValueError(f"Unsafe domain in service definition #{idx}")
+        if len(domains) != len(set(domains)):
+            raise ValueError(f"Duplicate domain in service definition #{idx}")
+        names.add(name.casefold())
+        catalog[str(idx)] = {'name': name, 'category': category, 'domains': domains}
+    return categories, catalog
 
 
 def get_individual_services():
-    """Get comprehensive list of individual services with their domains"""
-    services = {}
-    service_id = 1
-    
-    social_media = [
-        {'name': 'Facebook', 'domains': ['facebook.com', 'www.facebook.com', 'm.facebook.com', 'fb.com', 'facebook.net', 'fbcdn.net', 'facebookmail.com', 'fbsbx.com', 'fbstatic.com', 'facebook.org', 'messenger.com']},
-        {'name': 'Instagram', 'domains': ['instagram.com', 'www.instagram.com', 'cdninstagram.com', 'instagramstatic.com', 'ig.com']},
-        {'name': 'Twitter/X', 'domains': ['twitter.com', 'www.twitter.com', 'x.com', 'www.x.com', 't.co', 'twimg.com', 'twitpic.com', 'twitterinc.com', 'twitter.jp']},
-        {'name': 'TikTok', 'domains': ['tiktok.com', 'www.tiktok.com', 'tiktokcdn.com', 'tiktokv.com', 'tiktok.org', 'musical.ly', 'tiktokads.com']},
-        {'name': 'Snapchat', 'domains': ['snapchat.com', 'www.snapchat.com', 'snap.com', 'sc-cdn.net', 'snap-dev.net', 'snapkit.co']},
-        {'name': 'LinkedIn', 'domains': ['linkedin.com', 'www.linkedin.com', 'licdn.com', 'linkedin.at', 'linkedin.cn']},
-        {'name': 'Pinterest', 'domains': ['pinterest.com', 'www.pinterest.com', 'pinimg.com', 'pinterestmail.com', 'pinterest.jp']},
-        {'name': 'Reddit', 'domains': ['reddit.com', 'www.reddit.com', 'redd.it', 'redditstatic.com', 'redditmedia.com', 'redditgifts.com']},
-        {'name': 'Discord', 'domains': ['discord.com', 'www.discord.com', 'discordapp.com', 'discord.gg', 'discordapp.net', 'discord.media']},
-        {'name': 'WhatsApp', 'domains': ['whatsapp.com', 'www.whatsapp.com', 'wa.me', 'whatsapp.net', 'whatsapp.org', 'whatsapp-cdn-shv-01-ams2.fbcdn.net']},
-        {'name': 'Telegram', 'domains': ['telegram.org', 'www.telegram.org', 't.me', 'telegram.me', 'tdesktop.com', 'telegram-cdn.org']},
-        {'name': 'YouTube', 'domains': ['youtube.com', 'www.youtube.com', 'youtu.be', 'ytimg.com', 'googlevideo.com', 'youtube-nocookie.com', 'youtubeeducation.com']},
-        {'name': 'Twitch', 'domains': ['twitch.tv', 'www.twitch.tv', 'ttvnw.net', 'twitchcdn.net', 'twitchsvc.net', 'twitchcon.com']},
-        {'name': 'Tumblr', 'domains': ['tumblr.com', 'www.tumblr.com', 'tumblr.co', 'tumblr.io']},
-        {'name': 'VK (VKontakte)', 'domains': ['vk.com', 'www.vk.com', 'vk.me', 'vk-cdn.net', 'vk.ru']},
-        {'name': 'WeChat', 'domains': ['wechat.com', 'www.wechat.com', 'weixin.qq.com', 'weixin110.qq.com']},
-        {'name': 'Line', 'domains': ['line.me', 'www.line.me', 'line-apps.com', 'line-scdn.net']},
-        {'name': 'Weibo', 'domains': ['weibo.com', 'www.weibo.com', 'weibocdn.com']},
-        {'name': 'QQ', 'domains': ['qq.com', 'www.qq.com', 'qzone.com', 'tencent.com']},
-        {'name': 'Baidu', 'domains': ['baidu.com', 'www.baidu.com', 'baidupcs.com']},
-        {'name': 'Mixi', 'domains': ['mixi.jp', 'www.mixi.jp']},
-        {'name': 'Viber', 'domains': ['viber.com', 'www.viber.com', 'viber.com.cy']},
-        {'name': 'Skype', 'domains': ['skype.com', 'www.skype.com', 'skypeassets.com', 'skypeforbusiness.com']},
-        {'name': 'Signal', 'domains': ['signal.org', 'www.signal.org', 'signal.art']},
-        {'name': 'Mastodon', 'domains': ['mastodon.social', 'mastodon.online', 'mastodon.cloud']},
-        {'name': 'Truth Social', 'domains': ['truthsocial.com', 'www.truthsocial.com']},
-        {'name': 'Parler', 'domains': ['parler.com', 'www.parler.com']},
-        {'name': 'Gab', 'domains': ['gab.com', 'www.gab.com']},
-        {'name': 'MeWe', 'domains': ['mewe.com', 'www.mewe.com']},
-        {'name': 'Clubhouse', 'domains': ['clubhouse.com', 'www.clubhouse.com', 'joinclubhouse.com']},
-    ]
-    
-    streaming = [
-        {'name': 'Netflix', 'domains': ['netflix.com', 'www.netflix.com', 'nflxext.com', 'nflximg.net', 'nflxso.net', 'nflxvideo.net', 'netflix.net']},
-        {'name': 'Disney+', 'domains': ['disneyplus.com', 'www.disneyplus.com', 'disney.com', 'disneystreaming.com', 'disneynow.com']},
-        {'name': 'Hulu', 'domains': ['hulu.com', 'www.hulu.com', 'huluim.com', 'hulustream.com']},
-        {'name': 'Amazon Prime Video', 'domains': ['primevideo.com', 'www.primevideo.com', 'amazonvideo.com', 'aiv-cdn.net']},
-        {'name': 'HBO Max', 'domains': ['hbomax.com', 'www.hbomax.com', 'hbo.com', 'hbonow.com']},
-        {'name': 'Spotify', 'domains': ['spotify.com', 'www.spotify.com', 'spotifycdn.com', 'spotify.net', 'scdn.co', 'spotifyads.com']},
-        {'name': 'Apple Music', 'domains': ['music.apple.com', 'itunes.apple.com', 'itunes.com']},
-        {'name': 'SoundCloud', 'domains': ['soundcloud.com', 'www.soundcloud.com', 'sndcdn.com', 'soundcloud.org']},
-        {'name': 'Pandora', 'domains': ['pandora.com', 'www.pandora.com']},
-        {'name': 'Deezer', 'domains': ['deezer.com', 'www.deezer.com']},
-        {'name': 'Tidal', 'domains': ['tidal.com', 'www.tidal.com']},
-        {'name': 'Apple TV+', 'domains': ['tv.apple.com']},
-        {'name': 'Paramount+', 'domains': ['paramountplus.com', 'www.paramountplus.com', 'cbs.com']},
-        {'name': 'Peacock', 'domains': ['peacocktv.com', 'www.peacocktv.com', 'nbc.com']},
-        {'name': 'Crunchyroll', 'domains': ['crunchyroll.com', 'www.crunchyroll.com']},
-        {'name': 'Funimation', 'domains': ['funimation.com', 'www.funimation.com']},
-        {'name': 'Vudu', 'domains': ['vudu.com', 'www.vudu.com']},
-        {'name': 'FuboTV', 'domains': ['fubo.tv', 'www.fubo.tv']},
-        {'name': 'Sling TV', 'domains': ['sling.com', 'www.sling.com']},
-        {'name': 'YouTube TV', 'domains': ['tv.youtube.com']},
-        {'name': 'Pluto TV', 'domains': ['pluto.tv', 'www.pluto.tv']},
-        {'name': 'Tubi', 'domains': ['tubitv.com', 'www.tubitv.com']},
-        {'name': 'Crackle', 'domains': ['crackle.com', 'www.crackle.com']},
-        {'name': 'Vimeo', 'domains': ['vimeo.com', 'www.vimeo.com', 'vimeocdn.com']},
-        {'name': 'Dailymotion', 'domains': ['dailymotion.com', 'www.dailymotion.com']},
-    ]
-    
-    gaming = [
-        {'name': 'Steam', 'domains': ['steamcommunity.com', 'steampowered.com', 'steam-chat.com', 'steamcontent.com', 'steamstatic.com']},
-        {'name': 'Epic Games', 'domains': ['epicgames.com', 'www.epicgames.com', 'epicgames.net', 'unrealengine.com']},
-        {'name': 'Xbox Live', 'domains': ['xbox.com', 'www.xbox.com', 'xboxlive.com', 'xboxservices.com', 'xboxab.com']},
-        {'name': 'PlayStation Network', 'domains': ['playstation.com', 'www.playstation.com', 'sonyentertainmentnetwork.com', 'playstation.net']},
-        {'name': 'Nintendo', 'domains': ['nintendo.com', 'www.nintendo.com', 'nintendo.net', 'nintendoswitch.com', 'nintendo.co.jp']},
-        {'name': 'Roblox', 'domains': ['roblox.com', 'www.roblox.com', 'robloxlabs.com', 'rbxcdn.com']},
-        {'name': 'Minecraft', 'domains': ['minecraft.net', 'www.minecraft.net', 'mojang.com', 'minecraftshop.net']},
-        {'name': 'EA Origin', 'domains': ['origin.com', 'www.origin.com', 'ea.com', 'eaplay.com']},
-        {'name': 'Battle.net', 'domains': ['battle.net', 'www.battle.net', 'blizzard.com', 'blizzcon.com']},
-        {'name': 'Ubisoft', 'domains': ['ubisoft.com', 'www.ubisoft.com', 'uplay.com']},
-        {'name': 'GOG', 'domains': ['gog.com', 'www.gog.com']},
-        {'name': 'Riot Games', 'domains': ['riotgames.com', 'www.riotgames.com', 'leagueoflegends.com']},
-        {'name': 'Valorant', 'domains': ['playvalorant.com', 'www.playvalorant.com', 'valorant.com']},
-        {'name': 'Fortnite', 'domains': ['fortnite.com', 'www.fortnite.com']},
-        {'name': 'PUBG', 'domains': ['pubg.com', 'www.pubg.com', 'pubgmobile.com']},
-        {'name': 'Call of Duty', 'domains': ['callofduty.com', 'www.callofduty.com']},
-        {'name': 'Apex Legends', 'domains': ['apexlegends.com', 'www.apexlegends.com']},
-        {'name': 'Overwatch', 'domains': ['playoverwatch.com', 'www.playoverwatch.com']},
-        {'name': 'World of Warcraft', 'domains': ['worldofwarcraft.com', 'www.worldofwarcraft.com']},
-        {'name': 'Counter-Strike', 'domains': ['counter-strike.net', 'www.counter-strike.net']},
-        {'name': 'Dota 2', 'domains': ['dota2.com', 'www.dota2.com']},
-        {'name': 'Team Fortress 2', 'domains': ['teamfortress.com', 'www.teamfortress.com']},
-        {'name': 'Among Us', 'domains': ['innersloth.com', 'www.innersloth.com']},
-        {'name': 'Fall Guys', 'domains': ['fallguys.com', 'www.fallguys.com']},
-        {'name': 'Genshin Impact', 'domains': ['genshin.mihoyo.com', 'genshin.hoyoverse.com', 'hoyoverse.com']},
-        {'name': 'Honkai Impact', 'domains': ['honkaiimpact3.mihoyo.com', 'honkai.hoyoverse.com']},
-        {'name': 'GTA Online', 'domains': ['rockstargames.com', 'www.rockstargames.com']},
-        {'name': 'FIFA', 'domains': ['fifa.com', 'www.fifa.com', 'ea.com']},
-        {'name': 'Madden NFL', 'domains': ['madden.com', 'www.madden.com']},
-        {'name': 'NBA 2K', 'domains': ['2k.com', 'www.2k.com']},
-    ]
-    
-    shopping = [
-        {'name': 'Amazon', 'domains': ['amazon.com', 'www.amazon.com', 'amazon.co.uk', 'amazon.de', 'amazon.fr', 'amazonaws.com', 'amazon-adsystem.com']},
-        {'name': 'eBay', 'domains': ['ebay.com', 'www.ebay.com', 'ebayimg.com', 'ebaystatic.com', 'ebayinc.com']},
-        {'name': 'AliExpress', 'domains': ['aliexpress.com', 'www.aliexpress.com', 'aliexpress.ru']},
-        {'name': 'Wish', 'domains': ['wish.com', 'www.wish.com']},
-        {'name': 'Etsy', 'domains': ['etsy.com', 'www.etsy.com']},
-        {'name': 'Walmart', 'domains': ['walmart.com', 'www.walmart.com', 'walmart.ca']},
-        {'name': 'Target', 'domains': ['target.com', 'www.target.com']},
-        {'name': 'Best Buy', 'domains': ['bestbuy.com', 'www.bestbuy.com']},
-        {'name': 'Costco', 'domains': ['costco.com', 'www.costco.com']},
-        {'name': 'Home Depot', 'domains': ['homedepot.com', 'www.homedepot.com']},
-        {'name': 'Lowe\'s', 'domains': ['lowes.com', 'www.lowes.com']},
-        {'name': 'Macy\'s', 'domains': ['macys.com', 'www.macys.com']},
-        {'name': 'Nordstrom', 'domains': ['nordstrom.com', 'www.nordstrom.com']},
-        {'name': 'Zappos', 'domains': ['zappos.com', 'www.zappos.com']},
-        {'name': 'ASOS', 'domains': ['asos.com', 'www.asos.com']},
-        {'name': 'Shein', 'domains': ['shein.com', 'www.shein.com']},
-        {'name': 'Temu', 'domains': ['temu.com', 'www.temu.com']},
-        {'name': 'Wayfair', 'domains': ['wayfair.com', 'www.wayfair.com']},
-        {'name': 'Overstock', 'domains': ['overstock.com', 'www.overstock.com']},
-        {'name': 'Newegg', 'domains': ['newegg.com', 'www.newegg.com']},
-        {'name': 'Shopify', 'domains': ['shopify.com', 'www.shopify.com']},
-        {'name': 'WooCommerce', 'domains': ['woocommerce.com', 'www.woocommerce.com']},
-        {'name': 'Magento', 'domains': ['magento.com', 'www.magento.com']},
-        {'name': 'BigCommerce', 'domains': ['bigcommerce.com', 'www.bigcommerce.com']},
-        {'name': 'Square', 'domains': ['square.com', 'www.square.com', 'squareup.com']},
-    ]
-    
-    news = [
-        {'name': 'CNN', 'domains': ['cnn.com', 'www.cnn.com', 'cnn.io', 'cnn.net']},
-        {'name': 'BBC', 'domains': ['bbc.com', 'www.bbc.com', 'bbc.co.uk', 'bbci.co.uk', 'bbcnews.com']},
-        {'name': 'Fox News', 'domains': ['foxnews.com', 'www.foxnews.com', 'fox.com', 'foxbusiness.com']},
-        {'name': 'The New York Times', 'domains': ['nytimes.com', 'www.nytimes.com', 'nyt.com', 'nytimes.net']},
-        {'name': 'The Guardian', 'domains': ['theguardian.com', 'www.theguardian.com', 'guardian.co.uk']},
-        {'name': 'The Washington Post', 'domains': ['washingtonpost.com', 'www.washingtonpost.com']},
-        {'name': 'USA Today', 'domains': ['usatoday.com', 'www.usatoday.com']},
-        {'name': 'Wall Street Journal', 'domains': ['wsj.com', 'www.wsj.com']},
-        {'name': 'Reuters', 'domains': ['reuters.com', 'www.reuters.com']},
-        {'name': 'Associated Press', 'domains': ['ap.org', 'www.ap.org', 'apnews.com']},
-        {'name': 'NPR', 'domains': ['npr.org', 'www.npr.org']},
-        {'name': 'ABC News', 'domains': ['abcnews.go.com', 'abc.com']},
-        {'name': 'CBS News', 'domains': ['cbsnews.com', 'www.cbsnews.com', 'cbs.com']},
-        {'name': 'NBC News', 'domains': ['nbcnews.com', 'www.nbcnews.com', 'nbc.com']},
-        {'name': 'MSNBC', 'domains': ['msnbc.com', 'www.msnbc.com']},
-        {'name': 'CNBC', 'domains': ['cnbc.com', 'www.cnbc.com']},
-        {'name': 'Bloomberg', 'domains': ['bloomberg.com', 'www.bloomberg.com']},
-        {'name': 'Forbes', 'domains': ['forbes.com', 'www.forbes.com']},
-        {'name': 'Time', 'domains': ['time.com', 'www.time.com']},
-        {'name': 'Newsweek', 'domains': ['newsweek.com', 'www.newsweek.com']},
-        {'name': 'The Economist', 'domains': ['economist.com', 'www.economist.com']},
-        {'name': 'Politico', 'domains': ['politico.com', 'www.politico.com']},
-        {'name': 'The Hill', 'domains': ['thehill.com', 'www.thehill.com']},
-        {'name': 'Breitbart', 'domains': ['breitbart.com', 'www.breitbart.com']},
-        {'name': 'Daily Mail', 'domains': ['dailymail.co.uk', 'www.dailymail.co.uk']},
-        {'name': 'The Telegraph', 'domains': ['telegraph.co.uk', 'www.telegraph.co.uk']},
-        {'name': 'The Times', 'domains': ['thetimes.co.uk', 'www.thetimes.co.uk']},
-        {'name': 'Al Jazeera', 'domains': ['aljazeera.com', 'www.aljazeera.com']},
-        {'name': 'RT (Russia Today)', 'domains': ['rt.com', 'www.rt.com']},
-        {'name': 'Xinhua', 'domains': ['xinhuanet.com', 'www.xinhuanet.com']},
-    ]
-    
-    productivity = [
-        {'name': 'Google Drive', 'domains': ['drive.google.com', 'docs.google.com', 'sheets.google.com', 'slides.google.com', 'forms.google.com']},
-        {'name': 'Dropbox', 'domains': ['dropbox.com', 'www.dropbox.com', 'dropboxapi.com', 'dropboxusercontent.com']},
-        {'name': 'OneDrive', 'domains': ['onedrive.com', 'www.onedrive.com', 'onedrive.live.com', 'live.com']},
-        {'name': 'iCloud', 'domains': ['icloud.com', 'www.icloud.com', 'icloud-content.com']},
-        {'name': 'Zoom', 'domains': ['zoom.us', 'www.zoom.us', 'zoom.com', 'zoomgov.com']},
-        {'name': 'Microsoft Teams', 'domains': ['teams.microsoft.com', 'teams.live.com', 'office.com']},
-        {'name': 'Slack', 'domains': ['slack.com', 'www.slack.com', 'slack-edge.com', 'slack-imgs.com']},
-        {'name': 'Microsoft Office', 'domains': ['office.com', 'www.office.com', 'office365.com', 'microsoft.com']},
-        {'name': 'Google Workspace', 'domains': ['workspace.google.com', 'gsuite.google.com']},
-        {'name': 'Notion', 'domains': ['notion.so', 'www.notion.so']},
-        {'name': 'Evernote', 'domains': ['evernote.com', 'www.evernote.com']},
-        {'name': 'Trello', 'domains': ['trello.com', 'www.trello.com']},
-        {'name': 'Asana', 'domains': ['asana.com', 'www.asana.com']},
-        {'name': 'Monday.com', 'domains': ['monday.com', 'www.monday.com']},
-        {'name': 'Basecamp', 'domains': ['basecamp.com', 'www.basecamp.com']},
-        {'name': 'Jira', 'domains': ['atlassian.com', 'www.atlassian.com', 'jira.com']},
-        {'name': 'Confluence', 'domains': ['confluence.com', 'www.confluence.com']},
-        {'name': 'GitHub', 'domains': ['github.com', 'www.github.com', 'github.io', 'githubusercontent.com']},
-        {'name': 'GitLab', 'domains': ['gitlab.com', 'www.gitlab.com']},
-        {'name': 'Bitbucket', 'domains': ['bitbucket.org', 'www.bitbucket.org']},
-        {'name': 'Figma', 'domains': ['figma.com', 'www.figma.com']},
-        {'name': 'Adobe Creative Cloud', 'domains': ['adobe.com', 'www.adobe.com', 'adobelogin.com']},
-        {'name': 'Canva', 'domains': ['canva.com', 'www.canva.com']},
-        {'name': 'Grammarly', 'domains': ['grammarly.com', 'www.grammarly.com']},
-        {'name': 'LastPass', 'domains': ['lastpass.com', 'www.lastpass.com']},
-    ]
-    
-    adult = [
-        {'name': 'Pornhub', 'domains': ['pornhub.com', 'www.pornhub.com', 'pornhubpremium.com']},
-        {'name': 'OnlyFans', 'domains': ['onlyfans.com', 'www.onlyfans.com']},
-        {'name': 'XVideos', 'domains': ['xvideos.com', 'www.xvideos.com', 'xvideos.red', 'www.xvideos.red']},
-        {'name': 'xHamster', 'domains': ['xhamster.com', 'www.xhamster.com', 'xhamsterlive.com']},
-        {'name': 'RedTube', 'domains': ['redtube.com', 'www.redtube.com']},
-        {'name': 'YouPorn', 'domains': ['youporn.com', 'www.youporn.com']},
-        {'name': 'Tube8', 'domains': ['tube8.com', 'www.tube8.com']},
-        {'name': 'SpankWire', 'domains': ['spankwire.com', 'www.spankwire.com']},
-        {'name': 'PornMD', 'domains': ['pornmd.com', 'www.pornmd.com']},
-        {'name': 'Porn.com', 'domains': ['porn.com', 'www.porn.com']},
-        {'name': 'Beeg', 'domains': ['beeg.com', 'www.beeg.com']},
-        {'name': 'TnaFlix', 'domains': ['tnaflix.com', 'www.tnaflix.com']},
-        {'name': '4Tube', 'domains': ['4tube.com', 'www.4tube.com']},
-        {'name': 'DaftSex', 'domains': ['daftsex.com', 'www.daftsex.com']},
-        {'name': 'Nuvid', 'domains': ['nuvid.com', 'www.nuvid.com']},
-        {'name': 'PornOne', 'domains': ['pornone.com', 'www.pornone.com']},
-        {'name': 'SunPorno', 'domains': ['sunporno.com', 'www.sunporno.com']},
-        {'name': 'Vidz7', 'domains': ['vidz7.com', 'www.vidz7.com']},
-        {'name': 'XXXBunker', 'domains': ['xxxbunker.com', 'www.xxxbunker.com']},
-    ]
-    
-    gambling = [
-        {'name': 'Bet365', 'domains': ['bet365.com', 'www.bet365.com']},
-        {'name': 'DraftKings', 'domains': ['draftkings.com', 'www.draftkings.com']},
-        {'name': 'FanDuel', 'domains': ['fanduel.com', 'www.fanduel.com']},
-        {'name': 'PokerStars', 'domains': ['pokerstars.com', 'www.pokerstars.com', 'pokerstars.net']},
-        {'name': '888 Casino', 'domains': ['888.com', 'www.888.com']},
-        {'name': 'Betfair', 'domains': ['betfair.com', 'www.betfair.com']},
-        {'name': 'William Hill', 'domains': ['williamhill.com', 'www.williamhill.com']},
-        {'name': 'Ladbrokes', 'domains': ['ladbrokes.com', 'www.ladbrokes.com']},
-        {'name': 'Coral', 'domains': ['coral.co.uk', 'www.coral.co.uk']},
-        {'name': 'Paddy Power', 'domains': ['paddypower.com', 'www.paddypower.com']},
-        {'name': 'Betway', 'domains': ['betway.com', 'www.betway.com']},
-        {'name': 'Unibet', 'domains': ['unibet.com', 'www.unibet.com']},
-        {'name': 'Bwin', 'domains': ['bwin.com', 'www.bwin.com']},
-        {'name': 'BetMGM', 'domains': ['betmgm.com', 'www.betmgm.com']},
-        {'name': 'Caesars', 'domains': ['caesars.com', 'www.caesars.com']},
-        {'name': 'Bovada', 'domains': ['bovada.lv', 'www.bovada.lv']},
-        {'name': 'Bodog', 'domains': ['bodog.com', 'www.bodog.com']},
-        {'name': 'Intertops', 'domains': ['intertops.eu', 'www.intertops.eu']},
-        {'name': 'BetOnline', 'domains': ['betonline.ag', 'www.betonline.ag']},
-        {'name': 'MyBookie', 'domains': ['mybookie.ag', 'www.mybookie.ag']},
-        {'name': 'SportsBetting', 'domains': ['sportsbetting.ag', 'www.sportsbetting.ag']},
-        {'name': 'GTBets', 'domains': ['gtbets.eu', 'www.gtbets.eu']},
-        {'name': 'BetUS', 'domains': ['betus.com', 'www.betus.com']},
-        {'name': 'XBet', 'domains': ['xbet.ag', 'www.xbet.ag']},
-        {'name': 'Slots.lv', 'domains': ['slots.lv', 'www.slots.lv']},
-    ]
-    
-    vpn_proxy = [
-        {'name': 'NordVPN', 'domains': ['nordvpn.com', 'www.nordvpn.com', 'nordaccount.com', 'nordcdn.com']},
-        {'name': 'ExpressVPN', 'domains': ['expressvpn.com', 'www.expressvpn.com', 'expressvpn.net']},
-        {'name': 'Surfshark', 'domains': ['surfshark.com', 'www.surfshark.com']},
-        {'name': 'CyberGhost', 'domains': ['cyberghostvpn.com', 'www.cyberghostvpn.com', 'cyberghost.com']},
-        {'name': 'Private Internet Access (PIA)', 'domains': ['privateinternetaccess.com', 'www.privateinternetaccess.com']},
-        {'name': 'ProtonVPN', 'domains': ['protonvpn.com', 'www.protonvpn.com', 'proton.me']},
-        {'name': 'IPVanish', 'domains': ['ipvanish.com', 'www.ipvanish.com']},
-        {'name': 'Hotspot Shield', 'domains': ['hotspotshield.com', 'www.hotspotshield.com', 'anchorfree.com']},
-        {'name': 'TunnelBear', 'domains': ['tunnelbear.com', 'www.tunnelbear.com']},
-        {'name': 'Windscribe', 'domains': ['windscribe.com', 'www.windscribe.com']},
-        {'name': 'VyprVPN', 'domains': ['vyprvpn.com', 'www.vyprvpn.com', 'goldenfrog.com']},
-        {'name': 'PureVPN', 'domains': ['purevpn.com', 'www.purevpn.com']},
-        {'name': 'StrongVPN', 'domains': ['strongvpn.com', 'www.strongvpn.com']},
-        {'name': 'HideMyAss (HMA)', 'domains': ['hidemyass.com', 'www.hidemyass.com', 'hmavpn.com']},
-        {'name': 'TorGuard', 'domains': ['torguard.net', 'www.torguard.net']},
-        {'name': 'Mullvad', 'domains': ['mullvad.net', 'www.mullvad.net']},
-        {'name': 'IVPN', 'domains': ['ivpn.net', 'www.ivpn.net']},
-        {'name': 'Perfect Privacy', 'domains': ['perfect-privacy.com', 'www.perfect-privacy.com']},
-        {'name': 'AirVPN', 'domains': ['airvpn.org', 'www.airvpn.org']},
-        {'name': 'AzireVPN', 'domains': ['azirevpn.com', 'www.azirevpn.com']},
-        {'name': 'CactusVPN', 'domains': ['cactusvpn.com', 'www.cactusvpn.com']},
-        {'name': 'Celo VPN', 'domains': ['celovpn.com', 'www.celovpn.com']},
-        {'name': 'CryptoStorm', 'domains': ['cryptostorm.is', 'www.cryptostorm.is']},
-        {'name': 'FrootVPN', 'domains': ['frootvpn.com', 'www.frootvpn.com']},
-        {'name': 'GhostPath', 'domains': ['ghostpath.com', 'www.ghostpath.com']},
-        {'name': 'Hide.me', 'domains': ['hide.me', 'www.hide.me']},
-        {'name': 'IronSocket', 'domains': ['ironsocket.com', 'www.ironsocket.com']},
-        {'name': 'LiquidVPN', 'domains': ['liquidvpn.com', 'www.liquidvpn.com']},
-        {'name': 'Mozilla VPN', 'domains': ['vpn.mozilla.org']},
-        {'name': 'Norton Secure VPN', 'domains': ['norton.com', 'www.norton.com']},
-        {'name': 'OVPN', 'domains': ['ovpn.com', 'www.ovpn.com']},
-        {'name': 'PrivateVPN', 'domains': ['privatevpn.com', 'www.privatevpn.com']},
-        {'name': 'ProXPN', 'domains': ['proxpn.com', 'www.proxpn.com']},
-        {'name': 'SaferVPN', 'domains': ['safervpn.com', 'www.safervpn.com']},
-        {'name': 'Seed4.Me', 'domains': ['seed4.me', 'www.seed4.me']},
-        {'name': 'Speedify', 'domains': ['speedify.com', 'www.speedify.com']},
-        {'name': 'Trust.Zone', 'domains': ['trust.zone', 'www.trust.zone']},
-        {'name': 'VPN.ac', 'domains': ['vpn.ac', 'www.vpn.ac']},
-        {'name': 'VPN Unlimited', 'domains': ['vpnunlimited.com', 'www.vpnunlimited.com', 'keepsolid.com', 'www.keepsolid.com']},
-        {'name': 'VPN.ht', 'domains': ['vpn.ht', 'www.vpn.ht']},
-        {'name': 'VPNHub', 'domains': ['vpnhub.com', 'www.vpnhub.com']},
-        {'name': 'VPNLand', 'domains': ['vpnland.com', 'www.vpnland.com']},
-        {'name': 'VPNMaster', 'domains': ['vpnmaster.com', 'www.vpnmaster.com']},
-        {'name': 'VPNReactor', 'domains': ['vpnreactor.com', 'www.vpnreactor.com']},
-        {'name': 'VPNShazam', 'domains': ['vpnshazam.com', 'www.vpnshazam.com']},
-        {'name': 'VPNTunnel', 'domains': ['vpntunnel.com', 'www.vpntunnel.com']},
-        {'name': 'ZenMate', 'domains': ['zenmate.com', 'www.zenmate.com']},
-        {'name': 'ZorroVPN', 'domains': ['zorro-vpn.com', 'www.zorro-vpn.com']},
-        {'name': 'Betternet', 'domains': ['betternet.co', 'www.betternet.co']},
-        {'name': 'Opera VPN', 'domains': ['opera.com', 'www.opera.com']},
-        {'name': 'Hola VPN', 'domains': ['hola.org', 'www.hola.org', 'hola.com']},
-        {'name': 'Psiphon', 'domains': ['psiphon.ca', 'www.psiphon.ca', 'psiphon3.com']},
-        {'name': 'Lantern', 'domains': ['getlantern.org', 'www.getlantern.org']},
-        {'name': 'Tor Browser', 'domains': ['torproject.org', 'www.torproject.org', 'tor-browser.org']},
-        {'name': 'Freegate', 'domains': ['freegate.net', 'www.freegate.net']},
-        {'name': 'UltraSurf', 'domains': ['ultrasurf.us', 'www.ultrasurf.us']},
-        {'name': 'VPN Gate', 'domains': ['vpngate.net', 'www.vpngate.net']},
-        {'name': 'OpenVPN', 'domains': ['openvpn.net', 'www.openvpn.net', 'openvpn.org']},
-        {'name': 'WireGuard', 'domains': ['wireguard.com', 'www.wireguard.com']},
-        {'name': 'Shadowsocks', 'domains': ['shadowsocks.org', 'www.shadowsocks.org']},
-        {'name': 'V2Ray', 'domains': ['v2ray.com', 'www.v2ray.com', 'v2fly.org']},
-        {'name': 'Clash', 'domains': ['clash.dev', 'www.clash.dev']},
-        {'name': 'Proxifier', 'domains': ['proxifier.com', 'www.proxifier.com']},
-        {'name': 'ProxyCap', 'domains': ['proxycap.com', 'www.proxycap.com']},
-        {'name': 'ProxyChains', 'domains': ['proxychains.org', 'www.proxychains.org']},
-        {'name': 'ProxyScrape', 'domains': ['proxyscrape.com', 'www.proxyscrape.com']},
-        {'name': 'ProxyRack', 'domains': ['proxyrack.com', 'www.proxyrack.com']},
-        {'name': 'Smartproxy', 'domains': ['smartproxy.com', 'www.smartproxy.com']},
-        {'name': 'Bright Data', 'domains': ['brightdata.com', 'www.brightdata.com', 'luminati.io']},
-        {'name': 'Oxylabs', 'domains': ['oxylabs.io', 'www.oxylabs.io']},
-        {'name': 'IPRoyal', 'domains': ['iproyal.com', 'www.iproyal.com']},
-        {'name': 'Soax', 'domains': ['soax.com', 'www.soax.com']},
-        {'name': 'NetNut', 'domains': ['netnut.io', 'www.netnut.io']},
-        {'name': 'Webshare', 'domains': ['webshare.io', 'www.webshare.io']},
-        {'name': 'Proxy-Cheap', 'domains': ['proxy-cheap.com', 'www.proxy-cheap.com']},
-        {'name': 'MyPrivateProxy', 'domains': ['myprivateproxy.com', 'www.myprivateproxy.com']},
-        {'name': 'ProxyMesh', 'domains': ['proxymesh.com', 'www.proxymesh.com']},
-        {'name': 'Storm Proxies', 'domains': ['stormproxies.com', 'www.stormproxies.com']},
-        {'name': 'Blazing SEO', 'domains': ['blazingseollc.com', 'www.blazingseollc.com']},
-        {'name': 'RSocks', 'domains': ['rsocks.net', 'www.rsocks.net']},
-        {'name': 'ProxySeller', 'domains': ['proxyseller.com', 'www.proxyseller.com']},
-        {'name': 'BuyProxies', 'domains': ['buyproxies.org', 'www.buyproxies.org']},
-        {'name': 'HighProxies', 'domains': ['highproxies.com', 'www.highproxies.com']},
-        {'name': 'GeoSurf', 'domains': ['geosurf.com', 'www.geosurf.com']},
-    ]
-    
-    bypass_tools = [
-        {'name': 'ProxySite', 'domains': ['proxysite.com', 'www.proxysite.com']},
-        {'name': 'Hide.me Proxy', 'domains': ['hide.me', 'www.hide.me']},
-        {'name': 'KProxy', 'domains': ['kproxy.com', 'www.kproxy.com']},
-        {'name': 'Hidester', 'domains': ['hidester.com', 'www.hidester.com']},
-        {'name': '4everproxy', 'domains': ['4everproxy.com', 'www.4everproxy.com']},
-        {'name': 'CroxyProxy', 'domains': ['croxyproxy.com', 'www.croxyproxy.com', 'croxyproxy.net']},
-        {'name': 'Proxyium', 'domains': ['proxyium.com', 'www.proxyium.com']},
-        {'name': 'Whoer.net', 'domains': ['whoer.net', 'www.whoer.net']},
-        
-        {'name': 'Unblock Games 66', 'domains': ['unblockgames66.com', 'www.unblockgames66.com']},
-        {'name': 'Unblock Games 77', 'domains': ['unblockgames77.com', 'www.unblockgames77.com']},
-        {'name': 'Unblock Games 99', 'domains': ['unblockgames99.com', 'www.unblockgames99.com']},
-        {'name': 'Unblock Games 911', 'domains': ['unblockgames911.com', 'www.unblockgames911.com']},
-    ]
-    
-    fake_news = [
-        {'name': 'InfoWars', 'domains': ['infowars.com', 'www.infowars.com']},
-        {'name': 'Natural News', 'domains': ['naturalnews.com', 'www.naturalnews.com']},
-        {'name': 'The Gateway Pundit', 'domains': ['thegatewaypundit.com', 'www.thegatewaypundit.com']},
-        {'name': 'WorldNetDaily (WND)', 'domains': ['wnd.com', 'www.wnd.com']},
-        {'name': 'Your News Wire / NewsPunch', 'domains': ['yournewswire.com', 'www.yournewswire.com', 'newspunch.com', 'www.newspunch.com', 'thepeoplesvoice.tv', 'www.thepeoplesvoice.tv']},
-        {'name': 'Liberty Writers News', 'domains': ['libertywritersnews.com', 'www.libertywritersnews.com']},
-        {'name': 'Before It\'s News', 'domains': ['beforeitsnews.com', 'www.beforeitsnews.com']},
-        {'name': 'Real Raw News', 'domains': ['realrawnews.com', 'www.realrawnews.com']},
-        {'name': 'National Report', 'domains': ['nationalreport.net', 'www.nationalreport.net']},
-        
-        {'name': 'Activist Post', 'domains': ['activistpost.com', 'www.activistpost.com']},
-        {'name': 'Collective Evolution', 'domains': ['collective-evolution.com', 'www.collective-evolution.com']},
-        {'name': 'Disclose TV', 'domains': ['disclose.tv', 'www.disclose.tv']},
-        {'name': 'Global Research', 'domains': ['globalresearch.ca', 'www.globalresearch.ca']},
-        {'name': 'Veterans Today', 'domains': ['veteranstoday.com', 'www.veteranstoday.com']},
-        {'name': 'Zero Hedge', 'domains': ['zerohedge.com', 'www.zerohedge.com']},
-        {'name': '21st Century Wire', 'domains': ['21stcenturywire.com', 'www.21stcenturywire.com']},
-        {'name': 'The Free Thought Project', 'domains': ['thefreethoughtproject.com', 'www.thefreethoughtproject.com']},
-        {'name': 'Health Impact News', 'domains': ['healthimpactnews.com', 'www.healthimpactnews.com']},
-        {'name': 'Intellihub', 'domains': ['intellihub.com', 'www.intellihub.com']},
-        {'name': 'End Times Headlines', 'domains': ['endtimesheadlines.org', 'www.endtimesheadlines.org']},
-        {'name': 'Freedom Outpost', 'domains': ['freedomoutpost.com', 'www.freedomoutpost.com']},
-        {'name': 'WhatDoesItMean', 'domains': ['whatdoesitmean.com', 'www.whatdoesitmean.com']},
-        {'name': 'True Pundit', 'domains': ['truepundit.com', 'www.truepundit.com']},
-        {'name': 'DC Clothesline', 'domains': ['dcclothesline.com', 'www.dcclothesline.com']},
-        {'name': 'Now8News', 'domains': ['now8news.com', 'www.now8news.com']},
-        {'name': 'Political Ears', 'domains': ['politicalears.com', 'www.politicalears.com']},
-        {'name': 'The Political Insider', 'domains': ['thepoliticalinsider.com', 'www.thepoliticalinsider.com']},
-        {'name': 'TruthFeed', 'domains': ['truthfeed.com', 'www.truthfeed.com']},
-        {'name': 'GotNews', 'domains': ['gotnews.com', 'www.gotnews.com']},
-        {'name': 'Big League Politics', 'domains': ['bigleaguepolitics.com', 'www.bigleaguepolitics.com']},
-        {'name': 'Conservative Treehouse', 'domains': ['theconservativetreehouse.com', 'www.theconservativetreehouse.com']},
-        {'name': 'Eagle Rising', 'domains': ['eaglerising.com', 'www.eaglerising.com']},
-        {'name': 'GOP The Daily Dose', 'domains': ['gopthedailydose.com', 'www.gopthedailydose.com']},
-        {'name': 'Gulag Bound', 'domains': ['gulagbound.com', 'www.gulagbound.com']},
-        {'name': 'The Right Stuff', 'domains': ['therightstuff.biz', 'www.therightstuff.biz']},
-        {'name': 'Unz Review', 'domains': ['unz.com', 'www.unz.com']},
-        {'name': 'VDARE', 'domains': ['vdare.com', 'www.vdare.com']},
-        {'name': 'Bare Naked Islam', 'domains': ['barenakedislam.com', 'www.barenakedislam.com']},
-        {'name': 'Jihad Watch', 'domains': ['jihadwatch.org', 'www.jihadwatch.org']},
-        {'name': 'FrontPage Magazine', 'domains': ['frontpagemag.com', 'www.frontpagemag.com']},
-        {'name': 'Renew America', 'domains': ['renewamerica.com', 'www.renewamerica.com']},
-        {'name': 'Right Wing News', 'domains': ['rightwingnews.com', 'www.rightwingnews.com']},
-        {'name': 'LifeSiteNews', 'domains': ['lifesitenews.com', 'www.lifesitenews.com']},
-        {'name': 'The Epoch Times', 'domains': ['theepochtimes.com', 'www.theepochtimes.com']},
-        {'name': 'The New American', 'domains': ['thenewamerican.com', 'www.thenewamerican.com']},
-        {'name': 'American Thinker', 'domains': ['americanthinker.com', 'www.americanthinker.com']},
-        {'name': 'Western Journal', 'domains': ['westernjournal.com', 'www.westernjournal.com']},
-        {'name': 'US Uncut', 'domains': ['usuncut.com', 'www.usuncut.com']},
-    ]
-    
-    tracking = [
-        {'name': 'Google Analytics', 'domains': ['google-analytics.com', 'www.google-analytics.com', 'analytics.google.com', 'googletagmanager.com', 'www.googletagmanager.com']},
-        {'name': 'Google Tag Manager', 'domains': ['googletagmanager.com', 'www.googletagmanager.com']},
-        {'name': 'Google AdSense', 'domains': ['googleadsense.com', 'www.googleadsense.com', 'googlesyndication.com', 'www.googlesyndication.com']},
-        {'name': 'Google DoubleClick', 'domains': ['doubleclick.net', 'www.doubleclick.net', 'doubleclick.com', 'www.doubleclick.com']},
-        {'name': 'Google AdWords', 'domains': ['googleadservices.com', 'www.googleadservices.com']},
-        {'name': 'Google Marketing Platform', 'domains': ['marketingplatform.google.com']},
-        {'name': 'Google Firebase Analytics', 'domains': ['firebase.google.com', 'firebaseio.com']},
-        {'name': 'Google Optimize', 'domains': ['optimize.google.com']},
-        
-        {'name': 'Facebook Pixel', 'domains': ['connect.facebook.net', 'www.connect.facebook.net']},
-        {'name': 'Facebook Analytics', 'domains': ['analytics.facebook.com']},
-        {'name': 'Facebook Connect', 'domains': ['connect.facebook.com', 'www.connect.facebook.com']},
-        {'name': 'Meta Pixel', 'domains': ['facebook.com', 'meta.com']},
-        
-        {'name': 'Adobe Analytics', 'domains': ['omniture.com', 'www.omniture.com', 'sc.omtrdc.net']},
-        {'name': 'Adobe Audience Manager', 'domains': ['demdex.net', 'www.demdex.net']},
-        {'name': 'Adobe Experience Cloud', 'domains': ['adobedtm.com', 'www.adobedtm.com']},
-        {'name': 'Adobe Target', 'domains': ['tt.omtrdc.net']},
-        
-        {'name': 'Microsoft Clarity', 'domains': ['clarity.ms', 'www.clarity.ms']},
-        {'name': 'Microsoft Advertising', 'domains': ['bingads.microsoft.com']},
-        
-        {'name': 'Mixpanel', 'domains': ['mixpanel.com', 'www.mixpanel.com']},
-        {'name': 'Segment', 'domains': ['segment.com', 'www.segment.com', 'segment.io', 'www.segment.io']},
-        {'name': 'Amplitude', 'domains': ['amplitude.com', 'www.amplitude.com']},
-        {'name': 'Heap Analytics', 'domains': ['heap.io', 'www.heap.io']},
-        {'name': 'Hotjar', 'domains': ['hotjar.com', 'www.hotjar.com']},
-        {'name': 'FullStory', 'domains': ['fullstory.com', 'www.fullstory.com']},
-        {'name': 'LogRocket', 'domains': ['logrocket.com', 'www.logrocket.com']},
-        {'name': 'Sentry', 'domains': ['sentry.io', 'www.sentry.io']},
-        {'name': 'New Relic', 'domains': ['newrelic.com', 'www.newrelic.com']},
-        {'name': 'Datadog', 'domains': ['datadoghq.com', 'www.datadoghq.com']},
-        {'name': 'Matomo', 'domains': ['matomo.org', 'www.matomo.org']},
-        {'name': 'Plausible Analytics', 'domains': ['plausible.io', 'www.plausible.io']},
-        
-        {'name': 'Amazon Associates', 'domains': ['associates.amazon.com', 'amazon-adsystem.com', 'www.amazon-adsystem.com']},
-        {'name': 'Criteo', 'domains': ['criteo.com', 'www.criteo.com']},
-        {'name': 'The Trade Desk', 'domains': ['thetradedesk.com', 'www.thetradedesk.com']},
-        {'name': 'MediaMath', 'domains': ['mediamath.com', 'www.mediamath.com']},
-        {'name': 'AppNexus', 'domains': ['appnexus.com', 'www.appnexus.com']},
-        {'name': 'OpenX', 'domains': ['openx.com', 'www.openx.com']},
-        {'name': 'Rubicon Project', 'domains': ['rubiconproject.com', 'www.rubiconproject.com']},
-        {'name': 'PubMatic', 'domains': ['pubmatic.com', 'www.pubmatic.com']},
-        {'name': 'Index Exchange', 'domains': ['indexexchange.com', 'www.indexexchange.com']},
-        {'name': 'Sovrn', 'domains': ['sovrn.com', 'www.sovrn.com']},
-        {'name': '33Across', 'domains': ['33across.com', 'www.33across.com']},
-        {'name': 'AdRoll', 'domains': ['adroll.com', 'www.adroll.com']},
-        {'name': 'Lotame', 'domains': ['lotame.com', 'www.lotame.com']},
-        {'name': 'Quantcast', 'domains': ['quantcast.com', 'www.quantcast.com']},
-        {'name': 'ScoreCard Research', 'domains': ['scorecardresearch.com', 'www.scorecardresearch.com']},
-        {'name': 'Nielsen', 'domains': ['nielsen.com', 'www.nielsen.com']},
-        {'name': 'ComScore', 'domains': ['comscore.com', 'www.comscore.com']},
-        {'name': 'Chartbeat', 'domains': ['chartbeat.com', 'www.chartbeat.com']},
-        {'name': 'Parse.ly', 'domains': ['parsely.com', 'www.parsely.com']},
-        
-        {'name': 'Acxiom', 'domains': ['acxiom.com', 'www.acxiom.com']},
-        {'name': 'Experian', 'domains': ['experian.com', 'www.experian.com']},
-        {'name': 'Equifax', 'domains': ['equifax.com', 'www.equifax.com']},
-        {'name': 'TransUnion', 'domains': ['transunion.com', 'www.transunion.com']},
-        {'name': 'Epsilon', 'domains': ['epsilon.com', 'www.epsilon.com']},
-        {'name': 'Oracle Data Cloud', 'domains': ['oracle.com', 'bluekai.com', 'www.bluekai.com']},
-        
-        {'name': 'Twitter Analytics', 'domains': ['analytics.twitter.com', 'ads.twitter.com']},
-        {'name': 'LinkedIn Insight Tag', 'domains': ['snap.licdn.com']},
-        {'name': 'Pinterest Tag', 'domains': ['analytics.pinterest.com']},
-        {'name': 'TikTok Pixel', 'domains': ['analytics.tiktok.com', 'ads.tiktok.com']},
-        {'name': 'Snapchat Pixel', 'domains': ['ads.snapchat.com']},
-        
-        {'name': 'Mailchimp', 'domains': ['mailchimp.com', 'www.mailchimp.com']},
-        {'name': 'Constant Contact', 'domains': ['constantcontact.com', 'www.constantcontact.com']},
-        {'name': 'SendGrid', 'domains': ['sendgrid.com', 'www.sendgrid.com']},
-        {'name': 'Campaign Monitor', 'domains': ['campaignmonitor.com', 'www.campaignmonitor.com']},
-        
-        {'name': 'Crazy Egg', 'domains': ['crazyegg.com', 'www.crazyegg.com']},
-        {'name': 'Mouseflow', 'domains': ['mouseflow.com', 'www.mouseflow.com']},
-        {'name': 'Smartlook', 'domains': ['smartlook.com', 'www.smartlook.com']},
-        {'name': 'Lucky Orange', 'domains': ['luckyorange.com', 'www.luckyorange.com']},
-        
-        {'name': 'Optimizely', 'domains': ['optimizely.com', 'www.optimizely.com']},
-        {'name': 'VWO', 'domains': ['vwo.com', 'www.vwo.com']},
-        
-        {'name': 'Yandex Metrica', 'domains': ['metrica.yandex.com', 'mc.yandex.ru']},
-        {'name': 'Baidu Analytics', 'domains': ['hm.baidu.com', 'tongji.baidu.com']},
-    ]
-    
-    government_surveillance = [
-        {'name': 'NSA (National Security Agency)', 'domains': ['nsa.gov', 'www.nsa.gov']},
-        {'name': 'CIA (Central Intelligence Agency)', 'domains': ['cia.gov', 'www.cia.gov']},
-        {'name': 'FBI (Federal Bureau of Investigation)', 'domains': ['fbi.gov', 'www.fbi.gov']},
-        {'name': 'DHS (Department of Homeland Security)', 'domains': ['dhs.gov', 'www.dhs.gov', 'cisa.gov', 'www.cisa.gov']},
-        {'name': 'DEA (Drug Enforcement Administration)', 'domains': ['dea.gov', 'www.dea.gov']},
-        {'name': 'ATF (Bureau of Alcohol, Tobacco, Firearms)', 'domains': ['atf.gov', 'www.atf.gov']},
-        {'name': 'US Secret Service', 'domains': ['secretservice.gov', 'www.secretservice.gov']},
-        {'name': 'NRO (National Reconnaissance Office)', 'domains': ['nro.gov', 'www.nro.gov']},
-        {'name': 'NGA (National Geospatial-Intelligence Agency)', 'domains': ['nga.mil', 'www.nga.mil']},
-        {'name': 'DIA (Defense Intelligence Agency)', 'domains': ['dia.mil', 'www.dia.mil']},
-        {'name': 'US Cyber Command', 'domains': ['cybercom.mil', 'www.cybercom.mil']},
-        {'name': 'US Marshals Service', 'domains': ['usmarshals.gov', 'www.usmarshals.gov']},
-        {'name': 'ICE (Immigration and Customs Enforcement)', 'domains': ['ice.gov', 'www.ice.gov']},
-        {'name': 'CBP (Customs and Border Protection)', 'domains': ['cbp.gov', 'www.cbp.gov']},
-        {'name': 'TSA (Transportation Security Administration)', 'domains': ['tsa.gov', 'www.tsa.gov']},
-        
-        {'name': 'GCHQ (Government Communications Headquarters)', 'domains': ['gchq.gov.uk', 'www.gchq.gov.uk']},
-        {'name': 'MI5 (Security Service)', 'domains': ['mi5.gov.uk', 'www.mi5.gov.uk']},
-        {'name': 'MI6 (Secret Intelligence Service)', 'domains': ['sis.gov.uk', 'www.sis.gov.uk']},
-        {'name': 'NCA (National Crime Agency)', 'domains': ['nationalcrimeagency.gov.uk', 'www.nationalcrimeagency.gov.uk']},
-        
-        {'name': 'CSIS (Canadian Security Intelligence Service)', 'domains': ['csis.gc.ca', 'www.csis.gc.ca']},
-        {'name': 'CSE (Communications Security Establishment)', 'domains': ['cse-cst.gc.ca', 'www.cse-cst.gc.ca']},
-        {'name': 'RCMP (Royal Canadian Mounted Police)', 'domains': ['rcmp-grc.gc.ca', 'www.rcmp-grc.gc.ca']},
-        
-        {'name': 'ASIO (Australian Security Intelligence Organisation)', 'domains': ['asio.gov.au', 'www.asio.gov.au']},
-        {'name': 'ASIS (Australian Secret Intelligence Service)', 'domains': ['asis.gov.au', 'www.asis.gov.au']},
-        {'name': 'ASD (Australian Signals Directorate)', 'domains': ['asd.gov.au', 'www.asd.gov.au']},
-        
-        {'name': 'BND (German Federal Intelligence Service)', 'domains': ['bnd.bund.de', 'www.bnd.bund.de']},
-        {'name': 'DGSE (French External Security Directorate)', 'domains': ['defense.gouv.fr', 'www.defense.gouv.fr']},
-        {'name': 'AIVD (Dutch General Intelligence and Security Service)', 'domains': ['aivd.nl', 'www.aivd.nl']},
-        {'name': 'SIS (Swedish Security Service)', 'domains': ['sakerhetspolisen.se', 'www.sakerhetspolisen.se']},
-        
-        {'name': 'Mossad (Israeli Intelligence)', 'domains': ['mossad.gov.il', 'www.mossad.gov.il']},
-        {'name': 'FSB (Russian Federal Security Service)', 'domains': ['fsb.ru', 'www.fsb.ru']},
-        {'name': 'MSS (Chinese Ministry of State Security)', 'domains': ['mss.gov.cn', 'www.mss.gov.cn']},
-        
-        {'name': 'Interpol', 'domains': ['interpol.int', 'www.interpol.int']},
-        {'name': 'Europol', 'domains': ['europol.europa.eu', 'www.europol.europa.eu']},
-        {'name': 'Frontex', 'domains': ['frontex.europa.eu', 'www.frontex.europa.eu']},
-        
-        {'name': 'Qaznet Trust Network (Kazakhstan Surveillance CA)', 'domains': ['qaznet.kz', 'www.qaznet.kz']},
-        {'name': 'Root CA of Kazakhstan', 'domains': ['rootca.kz', 'www.rootca.kz']},
-    ]
-    
-    cryptocurrency = [
-        {'name': 'Coinbase', 'domains': ['coinbase.com', 'www.coinbase.com', 'pro.coinbase.com', 'exchange.coinbase.com', 'commerce.coinbase.com']},
-        {'name': 'Binance', 'domains': ['binance.com', 'www.binance.com', 'binance.us', 'www.binance.us', 'binance.org', 'www.binance.org']},
-        {'name': 'Kraken', 'domains': ['kraken.com', 'www.kraken.com']},
-        {'name': 'Gemini', 'domains': ['gemini.com', 'www.gemini.com']},
-        {'name': 'Bitfinex', 'domains': ['bitfinex.com', 'www.bitfinex.com']},
-        {'name': 'Bitstamp', 'domains': ['bitstamp.net', 'www.bitstamp.net']},
-        {'name': 'Huobi', 'domains': ['huobi.com', 'www.huobi.com', 'huobi.pro', 'www.huobi.pro']},
-        {'name': 'OKX (OKEx)', 'domains': ['okx.com', 'www.okx.com', 'okex.com', 'www.okex.com']},
-        {'name': 'KuCoin', 'domains': ['kucoin.com', 'www.kucoin.com']},
-        {'name': 'Bybit', 'domains': ['bybit.com', 'www.bybit.com']},
-        {'name': 'Crypto.com', 'domains': ['crypto.com', 'www.crypto.com', 'crypto.com', 'exchange.crypto.com']},
-        {'name': 'FTX', 'domains': ['ftx.com', 'www.ftx.com', 'ftx.us', 'www.ftx.us']},
-        {'name': 'Gate.io', 'domains': ['gate.io', 'www.gate.io']},
-        {'name': 'BitMEX', 'domains': ['bitmex.com', 'www.bitmex.com']},
-        {'name': 'Deribit', 'domains': ['deribit.com', 'www.deribit.com']},
-        {'name': 'Poloniex', 'domains': ['poloniex.com', 'www.poloniex.com']},
-        {'name': 'Bittrex', 'domains': ['bittrex.com', 'www.bittrex.com']},
-        {'name': 'Upbit', 'domains': ['upbit.com', 'www.upbit.com']},
-        {'name': 'Bithumb', 'domains': ['bithumb.com', 'www.bithumb.com']},
-        {'name': 'Coinone', 'domains': ['coinone.co.kr', 'www.coinone.co.kr']},
-        {'name': 'Korbit', 'domains': ['korbit.co.kr', 'www.korbit.co.kr']},
-        {'name': 'BitFlyer', 'domains': ['bitflyer.com', 'www.bitflyer.com', 'bitflyer.jp', 'www.bitflyer.jp']},
-        {'name': 'Liquid', 'domains': ['liquid.com', 'www.liquid.com']},
-        {'name': 'Bitpanda', 'domains': ['bitpanda.com', 'www.bitpanda.com']},
-        {'name': 'eToro', 'domains': ['etoro.com', 'www.etoro.com']},
-        {'name': 'Robinhood Crypto', 'domains': ['robinhood.com', 'www.robinhood.com']},
-        {'name': 'Cash App (Bitcoin)', 'domains': ['cash.app', 'www.cash.app', 'square.com', 'www.square.com']},
-        {'name': 'PayPal Crypto', 'domains': ['paypal.com', 'www.paypal.com']},
-        {'name': 'Venmo Crypto', 'domains': ['venmo.com', 'www.venmo.com']},
-        {'name': 'Revolut Crypto', 'domains': ['revolut.com', 'www.revolut.com']},
-        {'name': 'Nexo', 'domains': ['nexo.io', 'www.nexo.io']},
-        {'name': 'BlockFi', 'domains': ['blockfi.com', 'www.blockfi.com']},
-        {'name': 'Celsius', 'domains': ['celsius.network', 'www.celsius.network']},
-        {'name': 'Voyager', 'domains': ['investvoyager.com', 'www.investvoyager.com']},
-        {'name': 'Coinbase Wallet', 'domains': ['wallet.coinbase.com', 'www.wallet.coinbase.com']},
-        {'name': 'MetaMask', 'domains': ['metamask.io', 'www.metamask.io']},
-        {'name': 'Trust Wallet', 'domains': ['trustwallet.com', 'www.trustwallet.com']},
-        {'name': 'Exodus', 'domains': ['exodus.com', 'www.exodus.com']},
-        {'name': 'Electrum', 'domains': ['electrum.org', 'www.electrum.org']},
-        {'name': 'Mycelium', 'domains': ['mycelium.com', 'www.mycelium.com']},
-        {'name': 'Ledger', 'domains': ['ledger.com', 'www.ledger.com', 'ledger.io', 'www.ledger.io']},
-        {'name': 'Trezor', 'domains': ['trezor.io', 'www.trezor.io']},
-        {'name': 'KeepKey', 'domains': ['keepkey.com', 'www.keepkey.com']},
-        {'name': 'Atomic Wallet', 'domains': ['atomicwallet.io', 'www.atomicwallet.io']},
-        {'name': 'Jaxx', 'domains': ['jaxx.io', 'www.jaxx.io']},
-        {'name': 'Coinomi', 'domains': ['coinomi.com', 'www.coinomi.com']},
-        {'name': 'BRD Wallet', 'domains': ['brd.com', 'www.brd.com']},
-        {'name': 'Blockchain.info', 'domains': ['blockchain.com', 'www.blockchain.com', 'blockchain.info', 'www.blockchain.info']},
-        {'name': 'BitPay', 'domains': ['bitpay.com', 'www.bitpay.com']},
-        {'name': 'Coinbase Commerce', 'domains': ['commerce.coinbase.com', 'www.commerce.coinbase.com']},
-        {'name': 'BitPay Wallet', 'domains': ['bitpay.com', 'www.bitpay.com']},
-        {'name': 'Uniswap', 'domains': ['uniswap.org', 'www.uniswap.org', 'app.uniswap.org']},
-        {'name': 'SushiSwap', 'domains': ['sushi.com', 'www.sushi.com']},
-        {'name': 'PancakeSwap', 'domains': ['pancakeswap.finance', 'www.pancakeswap.finance']},
-        {'name': '1inch', 'domains': ['1inch.io', 'www.1inch.io', '1inch.exchange', 'www.1inch.exchange']},
-        {'name': 'Curve Finance', 'domains': ['curve.fi', 'www.curve.fi']},
-        {'name': 'Aave', 'domains': ['aave.com', 'www.aave.com']},
-        {'name': 'Compound', 'domains': ['compound.finance', 'www.compound.finance']},
-        {'name': 'MakerDAO', 'domains': ['makerdao.com', 'www.makerdao.com']},
-        {'name': 'Yearn Finance', 'domains': ['yearn.finance', 'www.yearn.finance']},
-        {'name': 'OpenSea', 'domains': ['opensea.io', 'www.opensea.io']},
-        {'name': 'Rarible', 'domains': ['rarible.com', 'www.rarible.com']},
-        {'name': 'Foundation', 'domains': ['foundation.app', 'www.foundation.app']},
-        {'name': 'SuperRare', 'domains': ['superrare.com', 'www.superrare.com']},
-        {'name': 'Nifty Gateway', 'domains': ['niftygateway.com', 'www.niftygateway.com']},
-        {'name': 'MakersPlace', 'domains': ['makersplace.com', 'www.makersplace.com']},
-        {'name': 'KnownOrigin', 'domains': ['knownorigin.io', 'www.knownorigin.io']},
-        {'name': 'Async Art', 'domains': ['async.art', 'www.async.art']},
-        {'name': 'F2Pool', 'domains': ['f2pool.com', 'www.f2pool.com']},
-        {'name': 'Antpool', 'domains': ['antpool.com', 'www.antpool.com']},
-        {'name': 'ViaBTC', 'domains': ['viabtc.com', 'www.viabtc.com']},
-        {'name': 'Slush Pool', 'domains': ['slushpool.com', 'www.slushpool.com']},
-        {'name': 'BTC.com Pool', 'domains': ['btc.com', 'www.btc.com']},
-        {'name': 'Poolin', 'domains': ['poolin.com', 'www.poolin.com']},
-        {'name': 'Binance Pool', 'domains': ['pool.binance.com', 'www.pool.binance.com']},
-        {'name': 'NiceHash', 'domains': ['nicehash.com', 'www.nicehash.com']},
-        {'name': 'Mining Pool Hub', 'domains': ['miningpoolhub.com', 'www.miningpoolhub.com']},
-        {'name': 'Ethermine', 'domains': ['ethermine.org', 'www.ethermine.org']},
-        {'name': 'SparkPool', 'domains': ['sparkpool.com', 'www.sparkpool.com']},
-        {'name': 'Flexpool', 'domains': ['flexpool.io', 'www.flexpool.io']},
-        {'name': '2Miners', 'domains': ['2miners.com', 'www.2miners.com']},
-        {'name': 'Hiveon Pool', 'domains': ['hiveon.net', 'www.hiveon.net']},
-        {'name': 'Coinbase Pro', 'domains': ['pro.coinbase.com', 'www.pro.coinbase.com']},
-        {'name': 'Coinbase Advanced Trade', 'domains': ['advanced.coinbase.com', 'www.advanced.coinbase.com']},
-        {'name': 'Coinbase Prime', 'domains': ['prime.coinbase.com', 'www.prime.coinbase.com']},
-        {'name': 'Coinbase Custody', 'domains': ['custody.coinbase.com', 'www.custody.coinbase.com']},
-        {'name': 'Coinbase NFT', 'domains': ['nft.coinbase.com', 'www.nft.coinbase.com']},
-        {'name': 'Coinbase Cloud', 'domains': ['cloud.coinbase.com', 'www.cloud.coinbase.com']},
-        {'name': 'Binance DEX', 'domains': ['binance.org', 'www.binance.org']},
-        {'name': 'Binance NFT', 'domains': ['nft.binance.com', 'www.nft.binance.com']},
-        {'name': 'Binance Launchpad', 'domains': ['launchpad.binance.com', 'www.launchpad.binance.com']},
-        {'name': 'Binance Earn', 'domains': ['binance.com', 'www.binance.com']},
-        {'name': 'Kraken Futures', 'domains': ['futures.kraken.com', 'www.futures.kraken.com']},
-        {'name': 'Kraken Pro', 'domains': ['pro.kraken.com', 'www.pro.kraken.com']},
-        {'name': 'Gemini Custody', 'domains': ['custody.gemini.com', 'www.custody.gemini.com']},
-    ]
-    
-    category_map = {
-        'social_media': 'Social Media',
-        'streaming': 'Streaming',
-        'gaming': 'Gaming',
-        'shopping': 'Shopping',
-        'news': 'News',
-        'productivity': 'Productivity',
-        'adult': 'Adult',
-        'gambling': 'Gambling',
-        'vpn_proxy': 'VPN/Proxy',
-        'bypass_tools': 'Bypass Tools',
-        'fake_news': 'Fake News',
-        'tracking': 'Tracking',
-        'government_surveillance': 'Government/Surveillance',
-        'cryptocurrency': 'Cryptocurrency'
-    }
-    
-    for service_list, cat_name in [(social_media, 'Social Media'), (streaming, 'Streaming'), 
-                                    (gaming, 'Gaming'), (shopping, 'Shopping'), 
-                                    (news, 'News'), (productivity, 'Productivity'),
-                                    (adult, 'Adult'), (gambling, 'Gambling'), 
-                                    (vpn_proxy, 'VPN/Proxy'), (bypass_tools, 'Bypass Tools'),
-                                    (fake_news, 'Fake News'), (tracking, 'Tracking'),
-                                    (government_surveillance, 'Government/Surveillance'),
-                                    (cryptocurrency, 'Cryptocurrency')]:
-        for service in service_list:
-            services[str(service_id)] = {**service, 'category': cat_name}
-            service_id += 1
-    
-    return services
+    return load_service_catalog()[1]
 
 
 def get_service_domains_for_service(service_key):
-    """Get domains for a specific service"""
-    services = get_individual_services()
-    if service_key in services:
-        service = services[service_key]
-        return {domain: '0.0.0.0' for domain in service['domains']}
-    return {}
+    service = get_individual_services().get(str(service_key))
+    return {domain: '0.0.0.0' for domain in service['domains']} if service else {}
 
 
 def show_category_menu():
-    """Show category selection menu"""
     clear_screen()
-    categories = [
-        ('Social Media', 'Social Media'),
-        ('Streaming', 'Streaming'),
-        ('Gaming', 'Gaming'),
-        ('Shopping', 'Shopping'),
-        ('News', 'News'),
-        ('Productivity', 'Productivity'),
-        ('Adult', 'Adult'),
-        ('Gambling', 'Gambling'),
-        ('VPN/Proxy', 'VPN/Proxy'),
-        ('Bypass Tools', 'Bypass Tools'),
-        ('Fake News', 'Fake News'),
-        ('Tracking', 'Tracking'),
-        ('Government/Surveillance', 'Government/Surveillance'),
-        ('Cryptocurrency', 'Cryptocurrency'),
-    ]
-    
-    menu_lines = []
-    menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  XusGuard - Universal Platform Adblock{Colors.ENDC}")
-    menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
-    menu_lines.append(f"{Colors.BRIGHT_WHITE}{Colors.BOLD}  Block Services - Categories{Colors.ENDC}")
-    menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
-    menu_lines.append("")
-    
-    key_colors = [Colors.BRIGHT_GREEN, Colors.BRIGHT_BLUE, Colors.BRIGHT_CYAN, Colors.BRIGHT_YELLOW, 
-                 Colors.BRIGHT_MAGENTA, Colors.BRIGHT_RED]
-    
-    for i, (cat_name, cat_key) in enumerate(categories, 1):
-        key_color = key_colors[(i - 1) % len(key_colors)]
-        menu_lines.append(f"{key_color}{Colors.BOLD}  {i}.{Colors.ENDC}{Colors.WHITE} {cat_name}{Colors.ENDC}")
-    
-    menu_lines.append("")
-    menu_lines.append("")
-    menu_lines.append(f"{Colors.BRIGHT_RED}{Colors.BOLD}  0.{Colors.ENDC}{Colors.BRIGHT_WHITE} Back{Colors.ENDC}")
-    
-    print()
-    print_boxed_menu(menu_lines, width=70)
-    print()
-    
-    return categories
+    categories, _ = load_service_catalog()
+    print_boxed_menu(
+        [f"{Colors.BOLD}XusGuard - Opt-in Service Blocking{Colors.ENDC}",
+         "Service blocking can prevent entire websites and apps from working.",
+         "Choose a category. [0] Back.", ""] +
+        [f" {i}. {name}" for i, name in enumerate(categories, 1)],
+        width=70,
+    )
+    return [(category, category) for category in categories]
 
 
 def show_services_in_category(category_name):
-    """Show services within a specific category"""
+    """Toggle an explicit service only inside XusGuard's service-owned section."""
     services = get_individual_services()
-    
-    category_services = []
-    for key, service in services.items():
-        if service['category'] == category_name:
-            category_services.append((key, service))
-    
-    category_services.sort(key=lambda x: int(x[0]))
-    
+    matching = [(key, service) for key, service in services.items()
+                if service['category'] == category_name]
+    hosts_path = get_hosts_file_path()
     while True:
+        try:
+            hosts_content = Path(hosts_path).read_text(encoding='utf-8', errors='replace')
+            enabled = get_service_blocked_domains(hosts_content)
+        except (OSError, ValueError) as exc:
+            print_error(f"Cannot read managed service rules: {exc}")
+            return False
         clear_screen()
-        menu_lines = []
-        menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  XusGuard - Universal Platform Adblock{Colors.ENDC}")
-        menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
-        menu_lines.append(f"{Colors.BRIGHT_WHITE}{Colors.BOLD}  {category_name} Services{Colors.ENDC}")
-        menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
-        menu_lines.append("")
-        
-        key_colors = [Colors.BRIGHT_GREEN, Colors.BRIGHT_BLUE, Colors.BRIGHT_CYAN, Colors.BRIGHT_YELLOW, 
-                     Colors.BRIGHT_MAGENTA, Colors.BRIGHT_RED]
-        
-        service_key_map = {}
-        
-        for i, (service_key, service) in enumerate(category_services, 1):
-            is_enabled = False
-            hosts_path = get_hosts_file_path()
-            if os.path.exists(hosts_path):
-                try:
-                    service_domains = get_service_domains_for_service(service_key)
-                    if service_domains:
-                        with open(hosts_path, 'r', encoding='utf-8', errors='ignore') as f:
-                            hosts_content = f.read()
-                            for domain in service_domains.keys():
-                                if (f"0.0.0.0 {domain}\n" in hosts_content or 
-                                    f"0.0.0.0 {domain}\r" in hosts_content or
-                                    f"127.0.0.1 {domain}\n" in hosts_content or
-                                    f"127.0.0.1 {domain}\r" in hosts_content or
-                                    f"0.0.0.0 {domain} " in hosts_content or
-                                    f"127.0.0.1 {domain} " in hosts_content):
-                                    is_enabled = True
-                                    break
-                except Exception:
-                    pass
-            
-            service_key_map[str(i)] = service_key
-            
-            key_color = key_colors[(i - 1) % len(key_colors)]
-            status_text = f"{Colors.BRIGHT_GREEN}{Colors.BOLD}[ON]{Colors.ENDC}" if is_enabled else f"{Colors.BRIGHT_RED}{Colors.BOLD}[OFF]{Colors.ENDC}"
-            menu_lines.append(f"{key_color}{Colors.BOLD}  {i}.{Colors.ENDC}{Colors.WHITE} {service['name']} {status_text}{Colors.ENDC}")
-        
-        menu_lines.append("")
-        menu_lines.append(f"{Colors.BRIGHT_YELLOW}{Colors.BOLD}  ALL.{Colors.ENDC}{Colors.WHITE} Toggle All Services{Colors.ENDC}")
-        menu_lines.append("")
-        menu_lines.append("")
-        menu_lines.append(f"{Colors.BRIGHT_RED}{Colors.BOLD}  0.{Colors.ENDC}{Colors.BRIGHT_WHITE} Back{Colors.ENDC}")
-        
-        print()
-        print_boxed_menu(menu_lines, width=70)
-        print()
-        
-        choice = input(f"{Colors.BRIGHT_CYAN}{Colors.BOLD}Enter your choice: {Colors.ENDC}").strip().lower()
-        
+        options = [
+            f"{Colors.BOLD}XusGuard - {category_name}{Colors.ENDC}",
+            "Only entries in the XusGuard service section are changed.",
+            "A service may use shared domains; blocking can break other websites.", ""
+        ]
+        for idx, (_, service) in enumerate(matching, 1):
+            names = set(service['domains'])
+            active = len(names & enabled)
+            state = 'ON' if active == len(names) else ('PARTIAL' if active else 'OFF')
+            options.append(f" {idx}. {service['name']} [{state}]")
+        options.extend(["", " ALL. Toggle this entire category", " 0. Back"])
+        print_boxed_menu(options, width=70)
+        choice = safe_input("Choice: ").strip().lower()
         if choice == '0':
             return True
-        
-        elif choice == 'all':
-            hosts_path = get_hosts_file_path()
-            
-            all_enabled = []
-            all_disabled = []
-            
-            for service_key, service in category_services:
-                is_enabled = False
-                if os.path.exists(hosts_path):
-                    try:
-                        service_domains = get_service_domains_for_service(service_key)
-                        if service_domains:
-                            with open(hosts_path, 'r', encoding='utf-8', errors='ignore') as f:
-                                hosts_content = f.read()
-                                for domain in service_domains.keys():
-                                    if (f"0.0.0.0 {domain}\n" in hosts_content or 
-                                        f"0.0.0.0 {domain}\r" in hosts_content or
-                                        f"127.0.0.1 {domain}\n" in hosts_content or
-                                        f"127.0.0.1 {domain}\r" in hosts_content or
-                                        f"0.0.0.0 {domain} " in hosts_content or
-                                        f"127.0.0.1 {domain} " in hosts_content):
-                                        is_enabled = True
-                                        break
-                    except Exception:
-                        pass
-                
-                if is_enabled:
-                    all_enabled.append((service_key, service))
-                else:
-                    all_disabled.append((service_key, service))
-            
-            if len(all_enabled) == len(category_services):
-                new_state = False
-                action_text = "disabled"
-            else:
-                new_state = True
-                action_text = "enabled"
-            
-            print_info(f"{'Disabling' if not new_state else 'Enabling'} all {category_name} services...")
-            success_count = 0
-            fail_count = 0
-            
-            all_service_domains = {}
-            for service_key, service in category_services:
-                service_domains = get_service_domains_for_service(service_key)
-                if service_domains:
-                    all_service_domains.update(service_domains)
-            
-            if all_service_domains:
-                service_names = ', '.join([s['name'] for _, s in category_services[:3]])
-                if len(category_services) > 3:
-                    service_names += f" and {len(category_services) - 3} more"
-                if apply_service_changes(hosts_path, all_service_domains, new_state, f"All {category_name} services"):
-                    success_count = len(category_services)
-                    print_success(f"All {category_name} services {action_text} ({success_count} services)")
-                else:
-                    fail_count = len(category_services)
-                    print_warning(f"Failed to update {fail_count} service(s)")
-            else:
-                print_warning("No domains found for services in this category")
-            
-            input(f"\n{Colors.OKCYAN}Press Enter to continue...{Colors.ENDC}")
+        if choice == 'all':
+            if not matching:
+                return True
+            domain_set = set().union(*(set(s['domains']) for _, s in matching))
+            currently_all_enabled = domain_set <= enabled
+            changes = {d: '0.0.0.0' for d in domain_set}
+            target = not currently_all_enabled
+            if not apply_service_changes(hosts_path, changes, target, category_name):
+                print_error("Category update failed")
             continue
-        
-        elif choice in service_key_map:
-            service_key = service_key_map[choice]
-            service = services[service_key]
-            
-            service_domains = get_service_domains_for_service(service_key)
-            
-            if not service_domains:
-                print_warning(f"Could not retrieve domains for {service['name']}")
-                input(f"\n{Colors.OKCYAN}Press Enter to continue...{Colors.ENDC}")
-                continue
-            
-            hosts_path = get_hosts_file_path()
-            current_state = False
-            if os.path.exists(hosts_path):
-                try:
-                    with open(hosts_path, 'r', encoding='utf-8', errors='ignore') as f:
-                        hosts_content = f.read()
-                        for domain in service_domains.keys():
-                            if (f"0.0.0.0 {domain}\n" in hosts_content or 
-                                f"0.0.0.0 {domain}\r" in hosts_content or
-                                f"127.0.0.1 {domain}\n" in hosts_content or
-                                f"127.0.0.1 {domain}\r" in hosts_content or
-                                f"0.0.0.0 {domain} " in hosts_content or
-                                f"127.0.0.1 {domain} " in hosts_content):
-                                current_state = True
-                                break
-                except Exception as e:
-                    current_state = False
-            
-            new_state = not current_state
-            
-            if apply_service_changes(hosts_path, service_domains, new_state, service['name']):
-                status = "enabled" if new_state else "disabled"
-                domain_count = len(service_domains)
-                action = "added" if new_state else "removed"
-                print_success(f"{service['name']} blocking {status} ({domain_count} domains {action})")
-            else:
-                print_error(f"Failed to update hosts file for {service['name']} blocking")
-            
-            input(f"\n{Colors.OKCYAN}Press Enter to continue...{Colors.ENDC}")
-        
-        else:
-            print_error("Invalid choice. Please try again.")
-            input(f"\n{Colors.OKCYAN}Press Enter to continue...{Colors.ENDC}")
+        try:
+            index = int(choice) - 1
+            if index < 0 or index >= len(matching):
+                raise ValueError("Not a menu option")
+        except ValueError:
+            print_warning("Invalid menu selection")
+            continue
+        key, service = matching[index]
+        domains = get_service_domains_for_service(key)
+        target = not set(domains).issubset(enabled)
+        if not apply_service_changes(hosts_path, domains, target, service['name']):
+            print_error("Service update failed")
 
 
 def manage_service_blocking():
-    """Manage individual service blocking (Facebook, Instagram, TikTok, etc.)"""
-    global HOSTS_SOURCES
-    
     while True:
-        categories = show_category_menu()
-        choice = input(f"{Colors.BRIGHT_CYAN}{Colors.BOLD}Enter your choice: {Colors.ENDC}").strip().lower()
-        
-        if choice == '0':
-            return True
-        
         try:
-            choice_num = int(choice)
-            if 1 <= choice_num <= len(categories):
-                category_name = categories[choice_num - 1][1]
-                show_services_in_category(category_name)
-            else:
-                print_error("Invalid choice. Please try again.")
-                input(f"\n{Colors.OKCYAN}Press Enter to continue...{Colors.ENDC}")
-        except ValueError:
-            print_error("Invalid choice. Please try again.")
-            input(f"\n{Colors.OKCYAN}Press Enter to continue...{Colors.ENDC}")
-    
-    while True:
-        menu_lines = []
-        menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  XusGuard - Universal Platform Adblock{Colors.ENDC}")
-        menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
-        menu_lines.append(f"{Colors.BRIGHT_WHITE}{Colors.BOLD}  Block Services{Colors.ENDC}")
-        menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
-        menu_lines.append("")
-        
-        service_status = {}
-        key_colors = [Colors.BRIGHT_GREEN, Colors.BRIGHT_BLUE, Colors.BRIGHT_CYAN, Colors.BRIGHT_YELLOW, 
-                     Colors.BRIGHT_MAGENTA]
-        
-        for cat_key, category in sorted(service_categories.items()):
-            matching_sources = []
-            for source_key, source in HOSTS_SOURCES.items():
-                source_name = source.get('name', '').lower()
-                if any(pattern.lower() in source_name for pattern in category['source_patterns']):
-                    matching_sources.append((source_key, source))
-            
-            is_enabled = False
-            if matching_sources:
-                hosts_path = get_hosts_file_path()
-                if os.path.exists(hosts_path):
-                    try:
-                        service_domains = get_service_domains(matching_sources)
-                        if service_domains:
-                            with open(hosts_path, 'r', encoding='utf-8', errors='ignore') as f:
-                                hosts_content = f.read()
-                                for domain in service_domains.keys():
-                                    if (f"0.0.0.0 {domain}\n" in hosts_content or 
-                                        f"0.0.0.0 {domain}\r" in hosts_content or
-                                        f"127.0.0.1 {domain}\n" in hosts_content or
-                                        f"127.0.0.1 {domain}\r" in hosts_content or
-                                        f"0.0.0.0 {domain} " in hosts_content or
-                                        f"127.0.0.1 {domain} " in hosts_content):
-                                        is_enabled = True
-                                        break
-                    except Exception as e:
-                        is_enabled = any(source.get('enabled', False) for _, source in matching_sources)
-                else:
-                    is_enabled = any(source.get('enabled', False) for _, source in matching_sources)
-            
-            service_status[cat_key] = is_enabled
-            
-            key_color = key_colors[(int(cat_key) - 1) % len(key_colors)]
-            status_text = f"{Colors.BRIGHT_GREEN}{Colors.BOLD}[ON]{Colors.ENDC}" if is_enabled else f"{Colors.BRIGHT_RED}{Colors.BOLD}[OFF]{Colors.ENDC}"
-            menu_lines.append(f"{key_color}{Colors.BOLD}  {cat_key}.{Colors.ENDC}{Colors.WHITE} {category['name']} {status_text}{Colors.ENDC}")
-            menu_lines.append(f"{Colors.BRIGHT_CYAN}    {category['description']}{Colors.ENDC}")
-            if matching_sources:
-                menu_lines.append(f"{Colors.WHITE}    Sources: {', '.join([s[1]['name'] for s in matching_sources])}{Colors.ENDC}")
-            menu_lines.append("")
-        
-        menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
-        menu_lines.append("")
-        menu_lines.append("")
-        menu_lines.append(f"{Colors.BRIGHT_RED}{Colors.BOLD}  0.{Colors.ENDC}{Colors.BRIGHT_WHITE} Back{Colors.ENDC}")
-        
-        print()
-        print_boxed_menu(menu_lines, width=70)
-        print()
-        
-        choice = input(f"{Colors.BRIGHT_CYAN}{Colors.BOLD}Enter your choice: {Colors.ENDC}").strip().lower()
-        
-        if choice == '0':
-            if save_sources(HOSTS_SOURCES):
-                print_success("Service blocking settings saved")
+            categories = show_category_menu()
+        except ValueError as exc:
+            print_error(f"Invalid services catalog: {exc}")
+            return False
+        selection = safe_input("Category number (0 to exit): ").strip()
+        if selection == '0':
             return True
-        
-        elif choice in service_categories:
-            category = service_categories[choice]
-            matching_sources = []
-            for source_key, source in HOSTS_SOURCES.items():
-                source_name = source.get('name', '').lower()
-                if any(pattern.lower() in source_name for pattern in category['source_patterns']):
-                    matching_sources.append((source_key, source))
-            
-            if not matching_sources:
-                print_warning(f"No sources found for {category['name']} blocking")
-                input(f"\n{Colors.OKCYAN}Press Enter to continue...{Colors.ENDC}")
-                continue
-            
-            print_info(f"Loading domains for {category['name']} blocking...")
-            service_domains = get_service_domains(matching_sources)
-            
-            if not service_domains:
-                print_warning(f"Could not retrieve domains for {category['name']} blocking")
-                input(f"\n{Colors.OKCYAN}Press Enter to continue...{Colors.ENDC}")
-                continue
-            
-            hosts_path = get_hosts_file_path()
-            current_state = False
-            if os.path.exists(hosts_path):
-                try:
-                    with open(hosts_path, 'r', encoding='utf-8', errors='ignore') as f:
-                        hosts_content = f.read()
-                        for domain in service_domains.keys():
-                            if (f"0.0.0.0 {domain}\n" in hosts_content or 
-                                f"0.0.0.0 {domain}\r" in hosts_content or
-                                f"127.0.0.1 {domain}\n" in hosts_content or
-                                f"127.0.0.1 {domain}\r" in hosts_content or
-                                f"0.0.0.0 {domain} " in hosts_content or
-                                f"127.0.0.1 {domain} " in hosts_content):
-                                current_state = True
-                                break
-                except Exception as e:
-                    current_state = any(source.get('enabled', False) for _, source in matching_sources)
-            else:
-                current_state = any(source.get('enabled', False) for _, source in matching_sources)
-            
-            new_state = not current_state
-            
-            if apply_service_changes(hosts_path, service_domains, new_state, category['name']):
-                for source_key, source in matching_sources:
-                    HOSTS_SOURCES[source_key]['enabled'] = new_state
-                
-                status = "enabled" if new_state else "disabled"
-                domain_count = len(service_domains)
-                action = "added" if new_state else "removed"
-                print_success(f"{category['name']} blocking {status} ({domain_count} domains {action})")
-            else:
-                print_error(f"Failed to update hosts file for {category['name']} blocking")
-            
-            input(f"\n{Colors.OKCYAN}Press Enter to continue...{Colors.ENDC}")
-        
-        else:
-            print_error("Invalid choice. Please try again.")
-            input(f"\n{Colors.OKCYAN}Press Enter to continue...{Colors.ENDC}")
-
+        try:
+            index = int(selection) - 1
+            if index < 0 or index >= len(categories):
+                raise ValueError("Invalid category")
+        except ValueError:
+            print_warning("Invalid category")
+            continue
+        if not show_services_in_category(categories[index][1]):
+            return False
 
 def view_hosts_file():
     """View the current hosts file"""
