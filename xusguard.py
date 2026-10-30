@@ -34,7 +34,10 @@ for _stream in (sys.stdout, sys.stderr):
     except (AttributeError, OSError, ValueError):
         pass
 
-VERSION = "2.0.0"
+if sys.version_info < (3, 10):
+    raise SystemExit("XusGuard requires Python 3.10 or newer")
+
+VERSION = "2.0.1"
 
 
 
@@ -80,6 +83,10 @@ def validate_sources_payload(sources):
         if (not isinstance(name, str) or not name or len(name) > 100
                 or safe_comment(name) != name):
             raise ValueError(f"Invalid source name at {key}")
+        try:
+            name.encode('utf-8')
+        except UnicodeError as exc:
+            raise ValueError(f"Invalid Unicode source name at {key}") from exc
         if name.casefold() in seen_names:
             raise ValueError(f"Duplicate source name at {key}; cache names must be unique")
         seen_names.add(name.casefold())
@@ -2820,12 +2827,8 @@ def main():
         save_default_hosts_file()
     
     if not check_root():
-        print_warning("Not running with administrator/root privileges.")
-        print_warning("You may need elevated privileges to modify the hosts file.")
-        response = safe_input(f"{Colors.WARNING}Continue anyway? (y/n): {Colors.ENDC}").strip().lower()
-        if response != 'y':
-            print_info("Exiting...")
-            sys.exit(0)
+        print_warning("Running without administrator/root privileges; read-only features remain available.")
+        print_warning("Hosts-file changes require elevated privileges and will fail safely otherwise.")
     
     while True:
         show_menu()
