@@ -367,52 +367,40 @@ def get_hosts_file_path():
 
 
 def download_hosts_file(url, timeout=60):
-    """Download a hosts file from a URL"""
+    """Download a blocklist over verified HTTPS only.
+
+    Never downgrade certificate verification or accept untrusted redirects.
+    """
+    from urllib.parse import urlsplit
+
+    if urlsplit(url).scheme.lower() != 'https':
+        print_error(f"Refusing non-HTTPS blocklist source: {url}")
+        return None
+
+    class HTTPSOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            if urlsplit(newurl).scheme.lower() != 'https':
+                raise urllib.error.URLError("Refusing redirect to non-HTTPS URL")
+            return super().redirect_request(req, fp, code, msg, headers, newurl)
+
     try:
         print_info(f"Downloading from {url}...")
-        
-        ssl_context = None
-        try:
-            import certifi  # type: ignore
-            ssl_context = ssl.create_default_context(cafile=certifi.where())
-        except ImportError:
-            try:
-                python_cmd = find_python_command()
-                if python_cmd:
-                    subprocess.run([python_cmd, '-m', 'pip', 'install', '--quiet', 'certifi'], 
-                                 check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    import certifi  # type: ignore
-                    ssl_context = ssl.create_default_context(cafile=certifi.where())
-            except:
-                ssl_context = ssl.create_default_context()
-        
-        if ssl_context is None:
-            ssl_context = ssl.create_default_context()
-        
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        
-        with urllib.request.urlopen(req, timeout=timeout, context=ssl_context) as response:
-            data = response.read().decode('utf-8', errors='ignore')
-            return data
-    except urllib.error.URLError as e:
-        if 'SSL' in str(e) or 'CERTIFICATE' in str(e):
-            try:
-                unverified_context = ssl._create_unverified_context()
-                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req, timeout=timeout, context=unverified_context) as response:
-                    data = response.read().decode('utf-8', errors='ignore')
-                    return data
-            except Exception as e2:
-                print_error(f"Failed to download from {url}: {e2}")
-                return None
-        elif 'timed out' in str(e).lower():
-            print_error(f"Timeout downloading from {url} (took longer than {timeout}s)")
-            return None
-        else:
-            print_error(f"Failed to download from {url}: {e}")
-            return None
-    except Exception as e:
-        print_error(f"Unexpected error downloading {url}: {e}")
+        opener = urllib.request.build_opener(
+            urllib.request.HTTPSHandler(context=ssl.create_default_context()),
+            HTTPSOnlyRedirectHandler(),
+        )
+        req = urllib.request.Request(url, headers={'User-Agent': 'Uni-Adblock/1.1'})
+        with opener.open(req, timeout=timeout) as response:
+            if urlsplit(response.geturl()).scheme.lower() != 'https':
+                raise urllib.error.URLError("Non-HTTPS response rejected")
+            # Bound memory consumption when processing third-party lists.
+            max_bytes = 32 * 1024 * 1024
+            data = response.read(max_bytes + 1)
+            if len(data) > max_bytes:
+                raise ValueError("Blocklist exceeds 32 MiB download limit")
+            return data.decode('utf-8', errors='replace')
+    except (urllib.error.URLError, ValueError, TimeoutError, OSError) as e:
+        print_error(f"Failed to download verified blocklist from {url}: {e}")
         return None
 
 
