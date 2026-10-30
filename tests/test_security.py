@@ -45,7 +45,7 @@ class SecurityTests(unittest.TestCase):
         import re
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         program = (ROOT / "xusguard.py").read_text(encoding="utf-8")
-        match = re.search(r'^VERSION = "(\\d+\\.\\d+\\.\\d+)"', program, re.M)
+        match = re.search(r'^VERSION = "([0-9]+[.][0-9]+[.][0-9]+)"', program, re.M)
         self.assertIsNotNone(match)
         self.assertIn(f"XusGuard v{match.group(1)}", readme)
 
