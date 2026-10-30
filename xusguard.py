@@ -2504,33 +2504,43 @@ def view_hosts_file():
         print_error(f"Failed to read hosts file: {e}")
 
 
+def get_owned_redirects(hosts_content):
+    """Discover only XusGuard-owned redirects; reject incomplete marker pairs."""
+    lines = hosts_content.splitlines()
+    redirects = {}
+    marker_prefix = '# XusGuard redirect: '
+    for index, line in enumerate(lines):
+        if not line.startswith(marker_prefix):
+            continue
+        domain = line[len(marker_prefix):].strip()
+        if normalize_domain(domain) != domain or index + 1 >= len(lines):
+            raise ValueError("Invalid or truncated XusGuard redirect marker")
+        parts = lines[index + 1].split()
+        if len(parts) != 2 or parts[1] != domain:
+            raise ValueError(f"Malformed redirect target for {domain}")
+        try:
+            address = str(ipaddress.ip_address(parts[0]))
+        except ValueError as exc:
+            raise ValueError(f"Invalid redirect address for {domain}") from exc
+        if domain in redirects:
+            raise ValueError(f"Duplicate redirect marker for {domain}")
+        redirects[domain] = address
+    return redirects
+
+
 def manage_domain_redirects():
     """Manage domain redirects (redirect domains to specific IP addresses)"""
     hosts_path = get_hosts_file_path()
     
-    system_domains = {'localhost', 'broadcasthost', 'local'}
-    system_ips = {'127.0.0.1', '0.0.0.0', '::1', '255.255.255.255', 'fe80::1%lo0'}
-    
     while True:
         clear_screen()
-        
         redirects = {}
         if os.path.exists(hosts_path):
             try:
-                with open(hosts_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith('#'):
-                            parts = line.split()
-                            if len(parts) >= 2:
-                                ip = parts[0]
-                                domain = parts[1].lower()
-                                if (ip not in ['0.0.0.0', '127.0.0.1'] and 
-                                    domain not in system_domains and 
-                                    ip not in system_ips):
-                                    redirects[domain] = ip
-            except Exception as e:
-                print_error(f"Failed to read hosts file: {e}")
+                with open(hosts_path, 'r', encoding='utf-8', errors='replace') as f:
+                    redirects = get_owned_redirects(f.read())
+            except (OSError, ValueError) as exc:
+                print_error(f"Cannot read safe redirect entries: {exc}")
                 return False
         
         menu_lines = []
@@ -2645,9 +2655,7 @@ def manage_domain_redirects():
             
             key_colors = [Colors.BRIGHT_GREEN, Colors.BRIGHT_BLUE, Colors.BRIGHT_CYAN, Colors.BRIGHT_YELLOW, 
                          Colors.BRIGHT_MAGENTA, Colors.BRIGHT_RED]
-            filtered_redirects = {d: ip for d, ip in redirects.items() 
-                                 if d.lower() not in system_domains and ip not in system_ips}
-            redirect_list = sorted(filtered_redirects.items())
+            redirect_list = sorted(redirects.items())
             
             if not redirect_list:
                 print_warning("No user-configured redirects to remove")
@@ -2701,6 +2709,7 @@ def add_redirect_to_hosts(hosts_path, domain, ip):
         with open(hosts_path, 'r', encoding='utf-8', errors='replace') as f:
             content = f.read()
         marker = f"# XusGuard redirect: {domain}"
+        get_owned_redirects(content)  # Reject malformed markers before modifying anything.
         lines = content.splitlines()
         filtered = []
         index = 0
@@ -2725,7 +2734,9 @@ def remove_redirect_from_hosts(hosts_path, domain, ip):
             raise ValueError("Invalid DNS hostname")
         marker = f"# XusGuard redirect: {domain}"
         with open(hosts_path, 'r', encoding='utf-8', errors='replace') as f:
-            lines = f.read().splitlines()
+            original_content = f.read()
+        get_owned_redirects(original_content)  # Never remove unverified marker pairs.
+        lines = original_content.splitlines()
         filtered = []
         removed = False
         i = 0
