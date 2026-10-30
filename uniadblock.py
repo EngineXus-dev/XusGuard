@@ -1318,71 +1318,41 @@ def install_adblock():
 
 
 def flush_dns_cache():
-    """Flush DNS cache for the current operating system"""
+    """Flush DNS caches without restarting network services or using a shell."""
     system = platform.system()
-    
-    menu_lines = []
-    menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  XusGuard - Universal Platform Adblock{Colors.ENDC}")
-    menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
-    menu_lines.append(f"{Colors.BRIGHT_WHITE}{Colors.BOLD}  Flush DNS Cache{Colors.ENDC}")
-    menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
-    
-    try:
-        if system == 'Darwin':
-            menu_lines.append(f"{Colors.WHITE}  Flushing DNS cache for macOS...{Colors.ENDC}")
-            print()
-            print_boxed_menu(menu_lines, width=70)
-            print()
-            
-            subprocess.run(['sudo', 'dscacheutil', '-flushcache'], check=False)
-            subprocess.run(['sudo', 'killall', '-HUP', 'mDNSResponder'], check=False)
-            print_success("DNS cache flushed successfully (macOS)")
-            
-        elif system == 'Linux':
-            menu_lines.append(f"{Colors.WHITE}  Flushing DNS cache for Linux...{Colors.ENDC}")
-            print()
-            print_boxed_menu(menu_lines, width=70)
-            print()
-            
-            result = subprocess.run(['sudo', 'systemd-resolve', '--flush-caches'], 
-                                  capture_output=True, check=False)
-            if result.returncode == 0:
-                print_success("DNS cache flushed successfully (systemd-resolve)")
-            else:
-                subprocess.run(['sudo', 'service', 'network-manager', 'restart'], check=False)
-                subprocess.run(['sudo', 'resolvectl', 'flush-caches'], check=False)
-                print_success("DNS cache flush attempted (multiple methods)")
-                
-        elif system == 'Windows':
-            menu_lines.append(f"{Colors.WHITE}  Flushing DNS cache for Windows...{Colors.ENDC}")
-            print()
-            print_boxed_menu(menu_lines, width=70)
-            print()
-            
-            subprocess.run(['ipconfig', '/flushdns'], shell=True, check=False)
-            print_success("DNS cache flushed successfully (Windows)")
-            
+    if system == 'Windows':
+        commands = [['ipconfig', '/flushdns']]
+    elif system == 'Darwin':
+        commands = [['dscacheutil', '-flushcache'], ['killall', '-HUP', 'mDNSResponder']]
+    elif system == 'Linux':
+        if shutil.which('resolvectl'):
+            commands = [['resolvectl', 'flush-caches']]
+        elif shutil.which('systemd-resolve'):
+            commands = [['systemd-resolve', '--flush-caches']]
         else:
-            menu_lines.append(f"{Colors.BRIGHT_RED}  Unsupported operating system: {system}{Colors.ENDC}")
-            print()
-            print_boxed_menu(menu_lines, width=70)
-            print()
-            print_warning(f"DNS cache flush not supported for {system}")
+            print_warning("No supported DNS cache flusher was found.")
             return False
-            
-        print_info("DNS cache has been flushed. Changes should take effect immediately.")
-        return True
-        
-    except Exception as e:
-        print_error(f"Failed to flush DNS cache: {e}")
-        print_warning("You may need to run the command manually with administrator/root privileges.")
-        if system == 'Darwin':
-            print_info("Run: sudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder")
-        elif system == 'Linux':
-            print_info("Run: sudo systemd-resolve --flush-caches (or sudo service network-manager restart)")
-        elif system == 'Windows':
-            print_info("Run: ipconfig /flushdns")
+    else:
+        print_warning(f"Unsupported OS for DNS flushing: {system}")
         return False
+
+    success = True
+    for command in commands:
+        try:
+            result = subprocess.run(command, capture_output=True, text=True,
+                                    timeout=15, check=False)
+            if result.returncode != 0:
+                print_warning(f"DNS command failed: {command[0]} ({result.returncode})")
+                success = False
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            print_warning(f"DNS command unavailable or timed out: {exc}")
+            success = False
+
+    if success:
+        print_success("DNS cache flush completed")
+    else:
+        print_warning("DNS flush incomplete. No network service was restarted.")
+    return success
 
 
 def get_service_domains(matching_sources):
@@ -2606,8 +2576,6 @@ def manage_domain_redirects():
                 input(f"\n{Colors.OKCYAN}Press Enter to continue...{Colors.ENDC}")
                 continue
             
-            import re
-            ip_pattern = r'^(\d{1,3}\.){3}\d{1,3}$'
             try:
                 ip = str(ipaddress.ip_address(target))
             except ValueError:
