@@ -82,7 +82,7 @@ class HostSafetyTests(unittest.TestCase):
 
     def test_atomic_replace_failure_preserves_original(self):
         previous = self.hosts.read_bytes()
-        with mock.patch.object(APP.os, "replace", side_effect=PermissionError("blocked")):
+        with mock.patch.object(APP, "replace_preserving_metadata", side_effect=PermissionError("blocked")):
             self.assertFalse(APP.install_hosts_file(self.hosts, "0.0.0.0 new.example\n"))
         self.assertEqual(self.hosts.read_bytes(), previous)
         self.assertEqual(list(self.root.glob(".xusguard-*")), [])
