@@ -1,6 +1,6 @@
 # 🛡️ XusGuard
 
-**XusGuard v2.0.0**
+**XusGuard v2.0.1**
 
 A personal, cross-platform hosts-file blocker for **Windows, macOS, and Linux**. XusGuard helps block selected advertising and tracking domains using your computer's hosts file. No upstream project download, release lookup, or execution is required.
 
@@ -14,6 +14,8 @@ A personal, cross-platform hosts-file blocker for **Windows, macOS, and Linux**.
 - **Fail-closed writes:** every hosts-file replacement requires a backup; writes are staged to a temporary file in the destination directory before replacement. If replacement is blocked, XusGuard reports an error instead of truncating the original.
 - **Explicit ownership:** new managed records sit between `# BEGIN XUSGUARD MANAGED` and `# END XUSGUARD MANAGED`. Other entries are preserved.
 - **Opt-in lists:** all sources are disabled until you choose one. Cached lists and backups are kept outside the repository.
+- **Safe source management:** Corrupted configuration is preserved rather than overwritten; caches are saved atomically and cache names avoid collisions.
+- **Owned redirects only:** Redirect controls only remove mappings explicitly marked as XusGuard-owned.
 - **Safe cleanup:** non-interactive cleanup cannot delete backups or preferences.
 
 ## Installation
@@ -31,6 +33,12 @@ Do **not** paste a `curl | bash` or downloaded-code PowerShell one-liner into an
 ## What it does
 
 The text menu lets you select/download third-party lists, merge and deduplicate domains, see statistics, inspect the hosts file, back it up, restore it, flush the DNS cache, choose service categories, and add or remove marked domain redirects.
+
+### Supported blocklists
+
+XusGuard accepts **hosts files** (for example, `0.0.0.0 ads.example` or `127.0.0.1 ads.example`) and **one-domain-per-line** lists. It does **not** parse Adblock Plus, uBlock Origin, or IP-only feeds. Ten incompatible preset feeds were removed; the remaining 20 sources are opt-in and still need your review. A third-party source may change its format or availability at any time.
+
+If a verified download fails, XusGuard does not silently install an expired cached list. Cache filenames changed in v2.0.1 to avoid collisions, so existing cached lists may be fetched again when first enabled. To avoid security surprises, the tool also refuses to overwrite a malformed `sources.json`; repair that file manually if it becomes damaged.
 
 ### Backups and recovery
 
