@@ -73,6 +73,23 @@ The restore menu also looks for older backups in the repository's former `hosts_
 - The Python source is still a large legacy application; automated tests do not replace a full multi-platform security audit.
 - XusGuard is not antivirus, a malware guarantee, or an enterprise DNS firewall.
 
+## Desktop GUI — XusGuard Control Center
+
+XusGuard now includes an **optional native Tkinter desktop interface** with dark charcoal, crimson accents and a sidebar adapted from the owner's AnonEngine UI design. No AnonEngine backend, JavaScript, browser APIs, services, or remote content are needed. It shares the same XusGuard Python backend and standard-library dependencies.
+
+- **Windows:** Double-click `start_gui.bat` (or run `py -3 xusguard_gui.py`).
+- **Linux/macOS:** Run `bash start_gui.sh` (or `python3 xusguard_gui.py`). Tkinter is required; some Linux distributions package it as `python3-tk`.
+
+The dashboard displays local hosts-file state; **Blocklists** manages opt-in sources and explicit downloads; **Preview & Apply** previews *locally cached, fresh* lists and verifies the hosts file and sources again before any write; **Services** manages the separate, opt-in access-blocking rules; **Recovery** lists verified backups with SHA-256 digests and requires `RESTORE` confirmation; **Diagnostics** runs the entire disposable-file recovery drill with one button.
+
+**Privilege model:** Browsing and downloads do not require administrator/root permissions. Applying, restoring, or blocking a service uses the normal OS file permissions; the GUI does **not** auto-elevate or weaken protections. Never treat a green status label as proof that advertisements or trackers are fully blocked.
+
+### Recovery testing and safeguards
+
+`python -m unittest discover -s tests -p "test_recovery.py" -v` executes end-to-end recovery drills on temporary hosts files. It tests a real install-to-backup-to-restore roundtrip, exact-byte recovery of non-UTF-8 historical data, new safety backups before rollback, hash mismatch and tampering rejection, wrong-file and symlink refusals, backup failures, and locked-file/atomic-replacement failures. The GUI offers the same tests under **Diagnostics → Run recovery drill**, with no separate scripts to manage.
+
+**These are disposable-file tests, not a real-system Windows/macOS/Linux installation certification.** Real hosts-file writes have OS permissions, antivirus interactions, ownership, and ACL considerations that must be tested on the target computer. A restore always requires previewed SHA-256 verification and a new successful backup before replacing the current hosts file.
+
 ## Tests
 
 Run the **offline** regression suite (never touches the real hosts file):
