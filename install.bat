@@ -1,13 +1,13 @@
 @echo off
 setlocal
-REM Run only local, reviewable files. No remote code or silent Python installation.
+REM XusGuard - EngineXus-dev. Local-only launcher; no network execution.
 cd /d "%~dp0"
 if not exist "uniadblock.py" (
-  echo [ERROR] uniadblock.py is missing. Extract the complete repository first.
+  echo [ERROR] uniadblock.py is missing. Extract the complete XusGuard repository first.
   exit /b 1
 )
 if not exist "sources.json" (
-  echo [ERROR] sources.json is missing. Extract the complete repository first.
+  echo [ERROR] sources.json is missing. Extract the complete XusGuard repository first.
   exit /b 1
 )
 where py >nul 2>&1
@@ -23,5 +23,5 @@ if %errorlevel% equ 0 (
   python uniadblock.py
   exit /b %errorlevel%
 )
-echo [ERROR] Install Python 3 manually from https://www.python.org/downloads/
+echo [ERROR] Install Python 3.10+ manually from https://www.python.org/downloads/
 exit /b 1
