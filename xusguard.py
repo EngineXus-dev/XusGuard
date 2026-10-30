@@ -538,28 +538,58 @@ def read_source_name_from_file(file_path):
 
 
 def backup_hosts_file(hosts_path, use_timestamp=True):
-    """Fail closed if the hosts file cannot be safely and completely backed up."""
+    """Create a durable, verified copy; incomplete backups are always removed."""
+    backup_path = None
     try:
         target = Path(hosts_path)
         if target.is_symlink() or not target.is_file():
-            raise OSError("Hosts file is missing, not regular, or is a symbolic link")
+            raise OSError("Hosts file is missing, not regular, or a symbolic link")
+        before = target.stat()
+        if not 0 < before.st_size <= 40 * 1024 * 1024:
+            raise ValueError("Hosts file must be between 1 byte and 40 MiB")
         backup_dir = get_backup_directory()
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
         backup_path = backup_dir / (
             f"{target.name}_{timestamp}_{secrets.token_hex(4)}{BACKUP_SUFFIX}"
         )
+        import hashlib
+        source_digest = hashlib.sha256()
+        copied = 0
         with target.open('rb') as src, backup_path.open('xb') as dst:
-            shutil.copyfileobj(src, dst)
+            while True:
+                chunk = src.read(1024 * 1024)
+                if not chunk:
+                    break
+                copied += len(chunk)
+                if copied > 40 * 1024 * 1024:
+                    raise ValueError("Backup exceeds the maximum allowed size")
+                source_digest.update(chunk)
+                dst.write(chunk)
             dst.flush()
             os.fsync(dst.fileno())
         if os.name != 'nt':
             backup_path.chmod(0o600)
-        if backup_path.stat().st_size != target.stat().st_size:
-            backup_path.unlink(missing_ok=True)
-            raise OSError("Backup size verification failed")
-        print_success(f"Backup created: {backup_path}")
+        after = target.stat()
+        if (copied != before.st_size or before.st_size != after.st_size
+                or before.st_mtime_ns != after.st_mtime_ns):
+            raise OSError("Hosts file changed during backup")
+        verify_digest = hashlib.sha256()
+        with backup_path.open('rb') as verify:
+            while True:
+                chunk = verify.read(1024 * 1024)
+                if not chunk:
+                    break
+                verify_digest.update(chunk)
+        if backup_path.stat().st_size != copied or verify_digest.digest() != source_digest.digest():
+            raise OSError("Backup integrity verification failed")
+        print_success(f"Verified backup created: {backup_path}")
         return True
-    except Exception as exc:
+    except (OSError, ValueError) as exc:
+        if backup_path is not None:
+            try:
+                backup_path.unlink(missing_ok=True)
+            except OSError:
+                pass
         print_error(f"Backup failed; refusing to modify hosts file: {exc}")
         return False
 
