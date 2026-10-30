@@ -30,6 +30,25 @@ class SecurityTests(unittest.TestCase):
                 self.assertNotIn("invoke-webrequest", source)
                 self.assertNotIn("curl -", source)
 
+    def test_bundled_sources_are_opt_in_and_supported(self):
+        import json
+        sources = json.loads((ROOT / "sources.json").read_text(encoding="utf-8"))
+        self.assertTrue(sources, "Expected at least one selectable blocklist")
+        for source in sources.values():
+            with self.subTest(name=source.get("name")):
+                self.assertIs(source.get("enabled"), False)
+                url = source.get("url", "").lower()
+                self.assertNotIn("adguardfilters/", url)
+                self.assertNotIn("ipblocklist.txt", url)
+
+    def test_readme_and_program_versions_agree(self):
+        import re
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        program = (ROOT / "xusguard.py").read_text(encoding="utf-8")
+        match = re.search(r'^VERSION = "(\\d+\\.\\d+\\.\\d+)"', program, re.M)
+        self.assertIsNotNone(match)
+        self.assertIn(f"XusGuard v{match.group(1)}", readme)
+
     def test_sources_are_https(self):
         import json
         sources = json.loads((ROOT / "sources.json").read_text(encoding="utf-8"))
