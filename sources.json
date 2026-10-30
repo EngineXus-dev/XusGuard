@@ -1,10 +1,4 @@
 {
-  "1": {
-    "name": "MVPS Hosts",
-    "url": "https://winhelp2002.mvps.org/hosts.txt",
-    "description": "MVPS hosts file (Windows-focused)",
-    "enabled": false
-  },
   "2": {
     "name": "Steven Black's Unified Hosts",
     "url": "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts",
@@ -49,14 +43,8 @@
   },
   "10": {
     "name": "1Hosts (Lite)",
-    "url": "https://o0.pages.dev/Lite/hosts.txt",
-    "description": "1Hosts Lite - lightweight ad blocking",
-    "enabled": false
-  },
-  "11": {
-    "name": "1Hosts (Pro)",
-    "url": "https://o0.pages.dev/Pro/hosts.txt",
-    "description": "1Hosts Pro - comprehensive ad blocking",
+    "url": "https://raw.githubusercontent.com/badmojr/1Hosts/master/Lite/hosts.txt",
+    "description": "1Hosts Lite — official publisher hosts-file mirror; opt-in",
     "enabled": false
   },
   "13": {
@@ -101,22 +89,10 @@
     "description": "Phishing Army extended blocklist (anti-phishing/anti-malware)",
     "enabled": false
   },
-  "20": {
-    "name": "URLhaus Malware Domains",
-    "url": "https://urlhaus.abuse.ch/downloads/hostfile/",
-    "description": "URLhaus malware domain blocklist (anti-malware/anti-virus)",
-    "enabled": false
-  },
   "28": {
     "name": "Ultimate Hosts Blacklist",
     "url": "https://raw.githubusercontent.com/Ultimate-Hosts-Blacklist/Ultimate.Hosts.Blacklist/master/hosts/hosts0",
     "description": "Ultimate Hosts Blacklist - comprehensive blocklist",
-    "enabled": false
-  },
-  "30": {
-    "name": "AdAway Extended",
-    "url": "https://raw.githubusercontent.com/AdAway/adaway.github.io/master/hosts.txt",
-    "description": "AdAway extended hosts file (Android-focused)",
     "enabled": false
   }
 }
