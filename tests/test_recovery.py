@@ -120,6 +120,18 @@ class RecoveryDrill(unittest.TestCase):
             self.hosts, entry["path"], entry["sha256"]))
         self.assertEqual(self.hosts.read_bytes(), self.initial)
 
+    def test_interrupted_backup_removes_partial_file(self):
+        with mock.patch.object(app.os, "fsync", side_effect=OSError("disk write failed")):
+            self.assertFalse(app.backup_hosts_file(self.hosts))
+        self.assertEqual(list(self.backups.glob("*.adblock_backup")), [])
+        self.assertEqual(self.hosts.read_bytes(), self.initial)
+
+    def test_backup_refuses_empty_or_oversize_source(self):
+        self.hosts.write_bytes(b"")
+        self.assertFalse(app.backup_hosts_file(self.hosts))
+        self.assertFalse(list(self.backups.iterdir()))
+
+
     def test_direct_restore_requires_digest(self):
         entry = self.original_backup()
         with self.assertRaises(ValueError):
