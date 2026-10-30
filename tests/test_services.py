@@ -68,7 +68,7 @@ class ManagedServiceTests(unittest.TestCase):
             str(self.hosts), {"shared.example": "0.0.0.0", "social.example": "0.0.0.0"}, True, "Test"))
         content = self.hosts.read_text()
         self.assertEqual(content.count("0.0.0.0 shared.example"), 1)
-        self.assertIn("0.0.0.0\\tsocial.example", content)
+        self.assertIn("0.0.0.0\tsocial.example", content)
         self.assertTrue(APP.apply_service_changes(
             str(self.hosts), {"shared.example": "0.0.0.0", "social.example": "0.0.0.0"}, False, "Test"))
         result = self.hosts.read_text()
@@ -87,7 +87,7 @@ class ManagedServiceTests(unittest.TestCase):
     def test_existing_service_rules_preserved_across_list_updates(self):
         content = APP.update_service_section(self.original, {"social.example"})
         revised = APP.replace_managed_section(content, "0.0.0.0 tracker.example\n")
-        self.assertIn("0.0.0.0\\tsocial.example", revised)
+        self.assertIn("0.0.0.0\tsocial.example", revised)
         self.assertIn("tracker.example", revised)
         self.assertNotIn("ads.example", revised)
         self.assertIn("192.0.2.44 internal.example", revised)
