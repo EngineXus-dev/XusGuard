@@ -273,7 +273,7 @@ class XusGuardDesktop:
                     else:
                         self.diagnostics_result = {
                             "passed": False,
-                            "summary": "RECOVERY DRILL FAILED\\n\\nThe test runner could not complete.\\n",
+                            "summary": "RECOVERY DRILL FAILED\n\nThe test runner could not complete.\n",
                             "details": str(result),
                         }
                     self.diagnostics_show_details = False
@@ -429,8 +429,8 @@ class XusGuardDesktop:
             preview_names += f" and {len(names) - 7} more"
         if not messagebox.askyesno(
             f"{verb} {len(services)} service(s)",
-            f"{verb} {len(services)} selected services ({len(domains)} unique domains)?\\n\\n"
-            f"{preview_names}\\n\\n"
+            f"{verb} {len(services)} selected services ({len(domains)} unique domains)?\n\n"
+            f"{preview_names}\n\n"
             "This can interrupt connectivity. Shared service domains may be "
             "affected. XusGuard will require a safety backup before writing."
         ):
@@ -532,13 +532,13 @@ class XusGuardDesktop:
     def render_diagnostics_result(self):
         if not hasattr(self, "diagnostics_out"):
             return
-        text = "Click Run recovery drill to test temporary hosts files.\\n"
+        text = "Click Run recovery drill to test temporary hosts files.\n"
         if self.diagnostics_result is not None:
             text = self.diagnostics_result.get(
                 "details" if self.diagnostics_show_details else "summary", text)
             if self.diagnostics_show_details:
                 text = (
-                    "Detailed test log (includes EXPECTED simulated failures):\\n\\n"
+                    "Detailed test log (includes EXPECTED simulated failures):\n\n"
                     + text
                 )
         self.diagnostics_out.configure(state="normal")
