@@ -681,6 +681,24 @@ def replace_managed_section(content, managed_body):
             managed_body.strip('\r\n') + '\n' + MANAGED_END + '\n')
 
 
+def replace_preserving_metadata(temp_path, target):
+    """Use Win32 ReplaceFileW to preserve Windows file ACLs; POSIX uses rename."""
+    if os.name == 'nt':
+        import ctypes
+        from ctypes import wintypes
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        replace_file = kernel32.ReplaceFileW
+        replace_file.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p,
+                                 ctypes.c_wchar_p, wintypes.DWORD,
+                                 ctypes.c_void_p, ctypes.c_void_p]
+        replace_file.restype = wintypes.BOOL
+        if not replace_file(str(target), str(temp_path), None, 0, None, None):
+            error = ctypes.get_last_error()
+            raise OSError(error, f"Windows ReplaceFileW failed: {error}")
+    else:
+        os.replace(temp_path, target)
+
+
 def install_hosts_file(hosts_path, content):
     """Back up then stage the full write before replacing the hosts file."""
     temp_path = None
@@ -706,7 +724,7 @@ def install_hosts_file(hosts_path, content):
             os.chown(temp_path, old_stat.st_uid, old_stat.st_gid)
             os.chmod(temp_path, stat.S_IMODE(old_stat.st_mode))
         # Refuse unsafe in-place fallback if Windows or antivirus blocks replacement.
-        os.replace(temp_path, target)
+        replace_preserving_metadata(temp_path, target)
         temp_path = None
         print_success(f"Hosts file updated: {target}")
         return True
