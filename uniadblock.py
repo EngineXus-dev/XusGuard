@@ -25,6 +25,14 @@ import ipaddress
 import secrets
 import stat
 
+# Avoid exceptions when classic Windows consoles cannot encode Unicode UI symbols.
+# Preserve the configured output encoding; replace only unrepresentable glyphs.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors='replace')
+    except (AttributeError, OSError, ValueError):
+        pass
+
 VERSION = "2.0.0"
 
 
