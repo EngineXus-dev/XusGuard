@@ -3,7 +3,7 @@
     "name": "MVPS Hosts",
     "url": "https://winhelp2002.mvps.org/hosts.txt",
     "description": "MVPS hosts file (Windows-focused)",
-    "enabled": true
+    "enabled": false
   },
   "2": {
     "name": "Steven Black's Unified Hosts",
