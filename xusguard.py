@@ -126,10 +126,6 @@ def load_sources():
         return {}
 
 
-def get_default_sources():
-    return load_sources()
-
-
 def save_sources(sources):
     """Never overwrite an unreadable, malformed, or symlinked configuration."""
     temp_path = None
@@ -163,7 +159,7 @@ def save_sources(sources):
                 pass
 
 
-HOSTS_SOURCES = get_default_sources()
+HOSTS_SOURCES = {}  # Populate only after startup; importing must not read files or perform I/O.
 
 
 def get_default_hosts_content():
