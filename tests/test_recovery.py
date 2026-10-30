@@ -132,6 +132,18 @@ class RecoveryDrill(unittest.TestCase):
         self.assertFalse(list(self.backups.iterdir()))
 
 
+    def test_non_utf8_service_write_does_not_destroy_legacy_bytes(self):
+        self.hosts.write_bytes(self.initial)
+        self.assertFalse(app.apply_service_changes(
+            self.hosts, {"social.example": "0.0.0.0"}, True, "Test"))
+        self.assertEqual(self.hosts.read_bytes(), self.initial)
+
+    def test_non_utf8_manual_redirect_write_refused(self):
+        self.hosts.write_bytes(self.initial)
+        self.assertFalse(app.add_redirect_to_hosts(
+            self.hosts, "ads.example", "192.0.2.3"))
+        self.assertEqual(self.hosts.read_bytes(), self.initial)
+
     def test_direct_restore_requires_digest(self):
         entry = self.original_backup()
         with self.assertRaises(ValueError):
