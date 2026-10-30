@@ -1429,7 +1429,7 @@ def update_service_section(content, blocked_domains):
 def apply_service_changes(hosts_path, service_domains, enable, service_name):
     """Write only the dedicated service section; never remove third-party blocks."""
     try:
-        original = Path(hosts_path).read_text(encoding='utf-8', errors='replace')
+        original = Path(hosts_path).read_text(encoding='utf-8', errors='strict')
         existing = get_service_blocked_domains(original)
         for domain in service_domains:
             normalized = normalize_domain(domain)
@@ -1443,7 +1443,7 @@ def apply_service_changes(hosts_path, service_domains, enable, service_name):
         if revised == original:
             return True
         return install_hosts_file(hosts_path, revised)
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, UnicodeError) as exc:
         print_error(f"Cannot modify service rules safely: {exc}")
         return False
 
@@ -1818,7 +1818,7 @@ def add_redirect_to_hosts(hosts_path, domain, ip):
         address = str(ipaddress.ip_address(ip))
         if not domain:
             raise ValueError("Invalid DNS hostname")
-        with open(hosts_path, 'r', encoding='utf-8', errors='replace') as f:
+        with open(hosts_path, 'r', encoding='utf-8', errors='strict') as f:
             content = f.read()
         marker = f"# XusGuard redirect: {domain}"
         get_owned_redirects(content)  # Reject malformed markers before modifying anything.
@@ -1833,7 +1833,7 @@ def add_redirect_to_hosts(hosts_path, domain, ip):
                 index += 1
         filtered.extend([marker, f"{address}\t{domain}"])
         return install_hosts_file(hosts_path, '\n'.join(filtered).rstrip('\n') + '\n')
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, UnicodeError) as exc:
         print_error(f"Failed to add redirect safely: {exc}")
         return False
 
@@ -1845,7 +1845,7 @@ def remove_redirect_from_hosts(hosts_path, domain, ip):
         if not domain:
             raise ValueError("Invalid DNS hostname")
         marker = f"# XusGuard redirect: {domain}"
-        with open(hosts_path, 'r', encoding='utf-8', errors='replace') as f:
+        with open(hosts_path, 'r', encoding='utf-8', errors='strict') as f:
             original_content = f.read()
         get_owned_redirects(original_content)  # Never remove unverified marker pairs.
         lines = original_content.splitlines()
@@ -1864,7 +1864,7 @@ def remove_redirect_from_hosts(hosts_path, domain, ip):
             print_warning("No matching XusGuard-owned redirect found")
             return False
         return install_hosts_file(hosts_path, '\n'.join(filtered).rstrip('\n') + '\n')
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, UnicodeError) as exc:
         print_error(f"Failed to remove redirect safely: {exc}")
         return False
 
