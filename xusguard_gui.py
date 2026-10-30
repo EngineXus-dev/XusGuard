@@ -19,6 +19,7 @@ except ImportError as exc:
 
 import xusguard as core
 from xusguard_preview import apply_preview, build_preview
+from xusguard_gui_helpers import selected_keys, summarize_recovery_drill
 
 BACKGROUND = "#070608"
 SIDEBAR = "#09080b"
@@ -42,6 +43,12 @@ class XusGuardDesktop:
         self.sources = core.load_sources()
         self.preview = None
         self.records = []
+        # Stable selection IDs survive refreshes, button presses and tab changes.
+        self.selected_source_ids = set()
+        self.selected_service_ids = set()
+        self._rebuilding_lists = False
+        self.diagnostics_result = None
+        self.diagnostics_show_details = False
         self.current_view = "Dashboard"
 
         self.sidebar = tk.Frame(self.root, bg=SIDEBAR, width=235)
@@ -130,13 +137,35 @@ class XusGuardDesktop:
         box.pack(fill="both", expand=True, pady=10)
         return box
 
-    def listbox(self, parent, height=14):
-        lb = tk.Listbox(parent, bg=SURFACE, fg=TEXT, selectbackground="#5e202d",
+    def listbox(self, parent, height=14, *, multiple=False):
+        """MULTIPLE toggles each row with a click; focus changes do not clear it."""
+        lb = tk.Listbox(parent, bg=SURFACE, fg=TEXT, selectbackground="#8e1c32",
                         selectforeground=TEXT, bd=0, relief="flat",
                         highlightthickness=1, highlightbackground=LINE,
-                        font=("Consolas", 10), activestyle="none", height=height)
+                        font=("Consolas", 10), activestyle="none", height=height,
+                        selectmode=tk.MULTIPLE if multiple else tk.BROWSE,
+                        exportselection=False)
         lb.pack(fill="both", expand=True, pady=10)
         return lb
+
+    def remember_source_selection(self, event=None):
+        if not self._rebuilding_lists and hasattr(self, "sources_list"):
+            self.selected_source_ids = set(selected_keys(
+                self.source_keys, self.sources_list.curselection()))
+
+    def remember_service_selection(self, event=None):
+        if not self._rebuilding_lists and hasattr(self, "service_list"):
+            self.selected_service_ids = set(selected_keys(
+                self.service_order, self.service_list.curselection()))
+
+    def clear_selected(self, kind):
+        if kind == "sources":
+            self.selected_source_ids.clear()
+            self.sources_list.selection_clear(0, "end")
+        elif kind == "services":
+            self.selected_service_ids.clear()
+            self.service_list.selection_clear(0, "end")
+        self.note("Selection cleared.")
 
     def show_dashboard(self):
         self.label(self.area, "Ad-blocking status is based on local hosts-file rules, not on a remote server.",
@@ -170,38 +199,46 @@ class XusGuardDesktop:
                    size=11).pack(fill="x", pady=18)
 
     def show_blocklists(self):
-        self.label(self.area, "All sources are opt-in. Toggle a source, save your choices, "
-                   "then download verified HTTPS lists without changing the system hosts file.",
+        self.label(self.area, "Click to select; click again to deselect. You can select multiple "
+                   "sources without Ctrl or Shift. Highlighted rows stay selected until toggled.",
                    size=11).pack(fill="x")
-        self.sources_list = self.listbox(self.area)
+        self.sources_list = self.listbox(self.area, multiple=True)
         self.refresh_sources_list()
+        self.sources_list.bind("<<ListboxSelect>>", self.remember_source_selection)
         actions = self.controls()
         actions.pack(fill="x")
-        self.button(actions, "Toggle selected", self.toggle_source)
+        self.button(actions, "Toggle selected sources", self.toggle_source)
+        self.button(actions, "Clear selection", lambda: self.clear_selected("sources"))
         self.button(actions, "Save choices", self.save_sources, primary=True)
         self.button(actions, "Download enabled", self.download_enabled)
-        self.label(self.area, "Downloaded lists are cached locally. Preview & Apply is a separate, "
-                   "explicit operation. No downloads run automatically.", size=10).pack(fill="x")
+        self.label(self.area, "Highlighting selects rows. [ON]/[OFF] shows the actual enabled "
+                   "setting. Use Toggle selected sources then Save choices; no hosts file "
+                   "is modified until Preview & Apply.", size=10).pack(fill="x")
 
     def refresh_sources_list(self):
         self.source_keys = sorted(self.sources, key=lambda n: int(n))
-        if not hasattr(self, "sources_list"):
-            return
-        self.sources_list.delete(0, "end")
-        for key in self.source_keys:
-            src = self.sources[key]
-            on = "ON " if src.get("enabled") else "OFF"
-            self.sources_list.insert("end", f"[{on}] {src['name']} — {src['url']}")
+        self._rebuilding_lists = True
+        try:
+            self.sources_list.delete(0, "end")
+            for index, key in enumerate(self.source_keys):
+                src = self.sources[key]
+                on = "ON " if src.get("enabled") else "OFF"
+                self.sources_list.insert("end", f"[{on}] {src['name']} — {src['url']}")
+                if key in self.selected_source_ids:
+                    self.sources_list.selection_set(index)
+        finally:
+            self._rebuilding_lists = False
 
     def toggle_source(self):
-        idx = self.sources_list.curselection()
-        if not idx:
+        chosen = selected_keys(self.source_keys, self.sources_list.curselection())
+        if not chosen:
+            messagebox.showinfo("Select sources", "Click one or more rows first.")
             return
-        key = self.source_keys[idx[0]]
-        self.sources[key]["enabled"] = not self.sources[key]["enabled"]
+        self.selected_source_ids = set(chosen)
+        for key in chosen:
+            self.sources[key]["enabled"] = not self.sources[key]["enabled"]
         self.refresh_sources_list()
-        self.sources_list.selection_set(idx[0])
-        self.note("Unsaved choices. Use Save choices before downloading or applying.")
+        self.note(f"Updated {len(chosen)} source selections. Remember to Save choices.")
 
     def save_sources(self):
         if core.save_sources(self.sources):
@@ -230,11 +267,28 @@ class XusGuardDesktop:
             while True:
                 ok, label, result = self.jobs.get_nowait()
                 self.busy = False
-                self.note(f"{label}: {result}", GREEN if ok else RED)
                 if label == "Recovery drill":
+                    if ok:
+                        self.diagnostics_result = result
+                    else:
+                        self.diagnostics_result = {
+                            "passed": False,
+                            "summary": "RECOVERY DRILL FAILED\\n\\nThe test runner could not complete.\\n",
+                            "details": str(result),
+                        }
+                    self.diagnostics_show_details = False
                     self.show("Diagnostics")
-                    self.diagnostics_out.insert("end", str(result))
-                elif not ok:
+                    passed = bool(self.diagnostics_result.get("passed"))
+                    self.note("Recovery drill passed." if passed else
+                              "Recovery drill failed — see Diagnostics.",
+                              GREEN if passed else RED)
+                    if not passed:
+                        messagebox.showerror("Recovery drill failed",
+                                             "Open the full test output for details.")
+                elif ok:
+                    self.note(f"{label}: {result}", GREEN)
+                else:
+                    self.note(f"{label}: {result}", RED)
                     messagebox.showerror(label, str(result))
         except queue.Empty:
             pass
@@ -320,42 +374,71 @@ class XusGuardDesktop:
             messagebox.showerror("Apply refused", str(exc))
 
     def show_services(self):
-        self.label(self.area, "Optional access blocking: selecting a service can prevent its "
-                   "website or app from working. Downloaded blocklists are kept separate.",
-                   size=11).pack(fill="x")
+        self.label(self.area, "Click a service to select it, then click again to deselect. "
+                   "Select multiple rows without modifier keys. Bulk changes are applied "
+                   "together with one verified safety backup.", size=11).pack(fill="x")
         try:
             self.catalog_categories, self.catalog = core.load_service_catalog()
             self.service_order = list(self.catalog.keys())
-            self.service_list = self.listbox(self.area)
-            target = Path(core.get_hosts_file_path())
-            content = target.read_text(encoding="utf-8", errors="replace")
-            enabled = core.get_service_blocked_domains(content)
-            for key in self.service_order:
-                s = self.catalog[key]
-                count = len(set(s["domains"]) & enabled)
-                status = "ON" if count == len(s["domains"]) else ("PARTIAL" if count else "OFF")
-                self.service_list.insert("end", f"[{status}] {s['category']} / {s['name']}")
+            self.service_list = self.listbox(self.area, multiple=True)
+            self.refresh_service_list()
+            self.service_list.bind("<<ListboxSelect>>", self.remember_service_selection)
             actions = self.controls()
             actions.pack(fill="x")
             self.button(actions, "Block selected", lambda: self.set_service(True), primary=True)
             self.button(actions, "Unblock selected", lambda: self.set_service(False))
+            self.button(actions, "Clear selection", lambda: self.clear_selected("services"))
+            self.label(self.area, "Selection is separate from ON/OFF blocking status. "
+                       "Disabling a domain shared with another service may affect both; "
+                       "downloaded blocklists are never removed.", size=10).pack(fill="x")
         except (OSError, ValueError) as exc:
             self.label(self.area, f"Services unavailable: {exc}", color=RED).pack(fill="x")
 
+    def refresh_service_list(self):
+        target = Path(core.get_hosts_file_path())
+        content = target.read_text(encoding="utf-8", errors="replace")
+        enabled = core.get_service_blocked_domains(content)
+        self._rebuilding_lists = True
+        try:
+            self.service_list.delete(0, "end")
+            for index, key in enumerate(self.service_order):
+                service = self.catalog[key]
+                count = len(set(service["domains"]) & enabled)
+                status = ("ON" if count == len(service["domains"])
+                          else ("PARTIAL" if count else "OFF"))
+                self.service_list.insert(
+                    "end", f"[{status}] {service['category']} / {service['name']}")
+                if key in self.selected_service_ids:
+                    self.service_list.selection_set(index)
+        finally:
+            self._rebuilding_lists = False
+
     def set_service(self, enabled):
-        idx = self.service_list.curselection()
-        if not idx:
+        chosen = selected_keys(self.service_order, self.service_list.curselection())
+        if not chosen:
+            messagebox.showinfo("Select services", "Click one or more services first.")
             return
-        service = self.catalog[self.service_order[idx[0]]]
+        self.selected_service_ids = set(chosen)
+        services = [self.catalog[key] for key in chosen]
+        names = [service["name"] for service in services]
+        domains = {domain: "0.0.0.0" for service in services
+                   for domain in service["domains"]}
         verb = "BLOCK" if enabled else "UNBLOCK"
-        if not messagebox.askyesno(f"{verb} {service['name']}",
-          f"{verb} {service['name']} ({len(service['domains'])} domains)?\n"
-          "This may interrupt connectivity and requires a safety backup."):
+        preview_names = ", ".join(names[:7])
+        if len(names) > 7:
+            preview_names += f" and {len(names) - 7} more"
+        if not messagebox.askyesno(
+            f"{verb} {len(services)} service(s)",
+            f"{verb} {len(services)} selected services ({len(domains)} unique domains)?\\n\\n"
+            f"{preview_names}\\n\\n"
+            "This can interrupt connectivity. Shared service domains may be "
+            "affected. XusGuard will require a safety backup before writing."
+        ):
             return
-        domains = {d: "0.0.0.0" for d in service["domains"]}
-        if core.apply_service_changes(core.get_hosts_file_path(), domains, enabled, service["name"]):
-            self.show("Services")
-            self.note(f"{service['name']} rules updated.", GREEN)
+        if core.apply_service_changes(core.get_hosts_file_path(), domains,
+                                      enabled, f"{len(services)} selected services"):
+            self.refresh_service_list()  # Keep highlighted selections.
+            self.note(f"{len(services)} service selections updated.", GREEN)
         else:
             messagebox.showerror("Failed", "Service rules were not changed.")
 
@@ -435,26 +518,55 @@ class XusGuardDesktop:
             messagebox.showerror("Backup failed", "Could not create a verified hosts backup.")
 
     def show_diagnostics(self):
-        self.label(self.area, "Recovery drill operates on temporary test files only, "
-                   "not your system hosts file. No network access is needed.", size=11).pack(fill="x")
+        self.label(self.area, "Recovery tests use isolated temporary hosts files. "
+                   "Simulated corruption, locked files and backup refusals are EXPECTED "
+                   "negative tests, not real system errors.", size=11).pack(fill="x")
         actions = self.controls()
         actions.pack(fill="x")
         self.button(actions, "Run recovery drill", self.run_recovery_drill, primary=True)
+        self.button(actions, "Show / hide detailed output",
+                    self.toggle_diagnostics_details)
         self.diagnostics_out = self.text_box(self.area, height=22)
-        self.diagnostics_out.insert("end", "Click Run recovery drill to launch automated safety tests.")
+        self.render_diagnostics_result()
+
+    def render_diagnostics_result(self):
+        if not hasattr(self, "diagnostics_out"):
+            return
+        text = "Click Run recovery drill to test temporary hosts files.\\n"
+        if self.diagnostics_result is not None:
+            text = self.diagnostics_result.get(
+                "details" if self.diagnostics_show_details else "summary", text)
+            if self.diagnostics_show_details:
+                text = (
+                    "Detailed test log (includes EXPECTED simulated failures):\\n\\n"
+                    + text
+                )
+        self.diagnostics_out.configure(state="normal")
+        self.diagnostics_out.delete("1.0", "end")
+        self.diagnostics_out.insert("end", text)
+        self.diagnostics_out.configure(state="disabled")
+
+    def toggle_diagnostics_details(self):
+        if self.diagnostics_result is None:
+            self.note("Run the recovery drill to generate detailed output first.")
+            return
+        self.diagnostics_show_details = not self.diagnostics_show_details
+        self.render_diagnostics_result()
 
     def run_recovery_drill(self):
         folder = Path(__file__).resolve().parent
+
         def run():
             completed = subprocess.run(
                 [sys.executable, "-m", "unittest", "discover",
                  "-s", "tests", "-p", "test_recovery.py", "-v"],
-                cwd=str(folder), capture_output=True, text=True, timeout=120,
-                check=False)
-            result = (completed.stdout + "\n" + completed.stderr)[-11000:]
-            if completed.returncode:
-                raise RuntimeError("Recovery drill FAILED:\n" + result)
-            return "Recovery drill PASS:\n" + result
+                cwd=str(folder), capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=120,
+                check=False
+            )
+            return summarize_recovery_drill(
+                completed.stdout, completed.stderr, completed.returncode
+            )
         self.background("Recovery drill", run)
 
     def run(self):
