@@ -37,3 +37,23 @@ jobs:
       - name: Check POSIX launcher syntax
         if: runner.os != 'Windows'
         run: bash -n install.sh
+
+  live-feed-audit:
+    name: Verify bundled third-party feeds (read-only)
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # pinned v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # pinned v6
+        with:
+          python-version: '3.12'
+      - name: Check each HTTPS feed without altering system hosts
+        run: python scripts/verify_feeds.py --output feed-audit.json
+      - name: Publish read-only feed audit artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # pinned v4
+        with:
+          name: xusguard-feed-audit
+          path: feed-audit.json
+          if-no-files-found: warn
