@@ -1,6 +1,6 @@
 # 🛡️ XusGuard
 
-**XusGuard v2.0.1**
+**XusGuard v2.1.0**
 
 A personal, cross-platform hosts-file blocker for **Windows, macOS, and Linux**. XusGuard helps block selected advertising and tracking domains using your computer's hosts file. No upstream project download, release lookup, or execution is required.
 
@@ -16,6 +16,7 @@ A personal, cross-platform hosts-file blocker for **Windows, macOS, and Linux**.
 - **Opt-in lists:** all sources are disabled until you choose one. Cached lists and backups are kept outside the repository.
 - **Safe source management:** Corrupted configuration is preserved rather than overwritten; caches are saved atomically and cache names avoid collisions.
 - **Owned redirects only:** Redirect controls only remove mappings explicitly marked as XusGuard-owned.
+- **Independent service rules:** Explicit service blocking lives in its own managed hosts section, so toggling a service cannot silently delete entries supplied by a downloaded blocklist.
 - **Safe cleanup:** non-interactive cleanup cannot delete backups or preferences.
 
 ## Installation
@@ -36,9 +37,19 @@ The text menu lets you select/download third-party lists, merge and deduplicate 
 
 ### Supported blocklists
 
-XusGuard accepts **hosts files** (for example, `0.0.0.0 ads.example` or `127.0.0.1 ads.example`) and **one-domain-per-line** lists. It does **not** parse Adblock Plus, uBlock Origin, or IP-only feeds. Ten incompatible preset feeds were removed; the remaining 20 sources are opt-in and still need your review. A third-party source may change its format or availability at any time.
+XusGuard accepts **hosts files** (for example, `0.0.0.0 ads.example` or `127.0.0.1 ads.example`) and **one-domain-per-line** lists. It does **not** parse Adblock Plus, uBlock Origin, or IP-only feeds. Ten incompatible preset feeds were previously removed; four more obsolete, duplicate or broken presets were subsequently retired. **All 16 remaining opt-in feeds passed the October 30, 2026 live HTTPS and hosts-format check.** This is not an integrity, age or false-positive guarantee. See [feed verification report](docs/FEED_STATUS.md) and the read-only [auditor](scripts/verify_feeds.py). A third-party source may change its format or availability at any time.
 
 If a verified download fails, XusGuard does not silently install an expired cached list. Cache filenames changed in v2.0.1 to avoid collisions, so existing cached lists may be fetched again when first enabled. To avoid security surprises, the tool also refuses to overwrite a malformed `sources.json`; repair that file manually if it becomes damaged.
+
+### Service blocking (optional)
+
+The old service catalog contained **554 hard-coded entries**, including broad, high-risk categories such as government domains and fake-news classifications. It has been reduced to **31 explicitly selectable services across six categories** in [services.json](services.json): Social Media, Streaming, Gaming, Shopping, Productivity, and Tracking & Ads.
+
+Service blocking is **not** the same as filtering advertising or tracking. Enabling YouTube, Steam or another named service can deliberately prevent the service from loading. Nothing in the catalog is enabled by default.
+
+XusGuard manages service toggles in a separate `# BEGIN XUSGUARD SERVICES` / `# END XUSGUARD SERVICES` section, distinct from the downloaded blocklist section. Turning a service off only removes XusGuard's explicit service rules; a domain may remain blocked by a third-party list.
+
+**Migration:** Old, unmanaged service entries from pre-2.1 installations cannot be removed automatically without risking unrelated hosts mappings. Review those entries or restore a known-good pre-install backup. Custom service lists must now be maintained in `services.json`; its schema is validated before use.
 
 ### Backups and recovery
 
@@ -70,7 +81,7 @@ Run the **offline** regression suite (never touches the real hosts file):
 python3 -m unittest discover -s tests -v
 ```
 
-GitHub Actions runs syntax checks and tests against Python 3.10, 3.12 and 3.13. Tests exercise malicious domain inputs, managed-block preservation, backup failures, atomic write errors, marked redirects and upstream URL checks.
+GitHub Actions runs offline tests across Ubuntu, Windows and macOS, plus a read-only HTTPS audit of all bundled feeds on pushes. The live audit produces a JSON report artifact and does not touch system hosts files. Tests exercise malicious domain inputs, managed-block preservation, backup failures, atomic write errors, marked redirects and upstream URL checks.
 
 ## Security and license
 
