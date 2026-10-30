@@ -202,6 +202,21 @@ class HostSafetyTests(unittest.TestCase):
             self.assertFalse(APP.is_source_cache_fresh("dated"))
 
 
+class StartupTests(unittest.TestCase):
+    def test_import_does_not_require_sources_or_create_files(self):
+        import importlib.util
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            dest = Path(folder) / "xusguard.py"
+            dest.write_bytes((ROOT / "xusguard.py").read_bytes())
+            spec = importlib.util.spec_from_file_location("xusguard_isolated_import", dest)
+            imported = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(imported)
+            self.assertEqual(imported.HOSTS_SOURCES, {})
+            self.assertEqual(sorted(path.name for path in Path(folder).iterdir()
+                                    if path.is_file()), ["xusguard.py"])
+
+
 class OwnershipTests(unittest.TestCase):
     def test_no_upstream_network_references(self):
         for path in ("xusguard.py", "install.sh", "install.bat", "README.md"):
