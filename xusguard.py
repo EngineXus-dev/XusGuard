@@ -51,6 +51,19 @@ SOURCES_DIR = 'hosts_sources'
 SOURCES_JSON_FILE = 'sources.json'
 
 
+def safe_comment(value):
+    """Prevent configured source names from injecting hosts-file lines."""
+    return re.sub(r'[\x00-\x1f\x7f]', ' ', str(value))[:160]
+
+
+def get_source_file_path(source_name):
+    """Unique, deterministic cache file; names cannot collide after sanitizing."""
+    source_bytes = source_name.encode('utf-8')
+    suffix = hashlib.sha256(source_bytes).hexdigest()[:16]
+    filename = f"{sanitize_filename(source_name)[:80]}_{suffix}.hosts"
+    return get_sources_directory() / filename
+
+
 def validate_sources_payload(sources):
     """Validate configuration without contacting any configured URL."""
     from urllib.parse import urlsplit
@@ -452,19 +465,6 @@ def sanitize_filename(name):
     if len(filename) > 100:
         filename = filename[:100]
     return filename
-
-
-def safe_comment(value):
-    """Prevent configured source names from injecting hosts-file lines."""
-    return re.sub(r'[\x00-\x1f\x7f]', ' ', str(value))[:160]
-
-
-def get_source_file_path(source_name):
-    """Unique, deterministic cache file; names cannot collide after sanitizing."""
-    source_bytes = source_name.encode('utf-8')
-    suffix = hashlib.sha256(source_bytes).hexdigest()[:16]
-    filename = f"{sanitize_filename(source_name)[:80]}_{suffix}.hosts"
-    return get_sources_directory() / filename
 
 
 def save_source_file(source_id, source_name, entries):
