@@ -37,7 +37,7 @@ for _stream in (sys.stdout, sys.stderr):
 if sys.version_info < (3, 10):
     raise SystemExit("XusGuard requires Python 3.10 or newer")
 
-VERSION = "2.0.1"
+VERSION = "2.1.0"
 
 
 
