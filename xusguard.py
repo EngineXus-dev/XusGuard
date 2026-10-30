@@ -1403,15 +1403,15 @@ def get_service_blocked_domains(content):
 def update_service_section(content, blocked_domains):
     base, _ = split_service_section(content)
     if not blocked_domains:
-        return base.rstrip('\\r\\n') + '\\n'
+        return base.rstrip('\r\n') + '\n'
     entries = []
     for domain in sorted(blocked_domains):
         normalized = normalize_domain(domain)
         if domain != normalized:
             raise ValueError(f"Invalid service domain: {domain}")
-        entries.append(f"0.0.0.0\\t{domain}")
-    return (base.rstrip('\\r\\n') + '\\n\\n' + SERVICE_START + '\\n'
-            + '\\n'.join(entries) + '\\n' + SERVICE_END + '\\n')
+        entries.append(f"0.0.0.0\t{domain}")
+    return (base.rstrip('\r\n') + '\n\n' + SERVICE_START + '\n'
+            + '\n'.join(entries) + '\n' + SERVICE_END + '\n')
 
 
 def apply_service_changes(hosts_path, service_domains, enable, service_name):
