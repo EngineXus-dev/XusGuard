@@ -1,0 +1,353 @@
+{
+  "schema_version": 1,
+  "note": "Opt-in access-blocking catalog. Services are websites/apps, not proof of advertising or tracking. Domains may change or be shared with other services.",
+  "categories": [
+    "Social Media",
+    "Streaming",
+    "Gaming",
+    "Shopping",
+    "Productivity",
+    "Tracking & Ads"
+  ],
+  "services": [
+    {
+      "name": "Facebook",
+      "category": "Social Media",
+      "domains": [
+        "facebook.com",
+        "www.facebook.com",
+        "m.facebook.com",
+        "fb.com",
+        "facebook.net",
+        "fbcdn.net",
+        "facebookmail.com",
+        "fbsbx.com",
+        "fbstatic.com",
+        "facebook.org",
+        "messenger.com"
+      ]
+    },
+    {
+      "name": "Instagram",
+      "category": "Social Media",
+      "domains": [
+        "instagram.com",
+        "www.instagram.com",
+        "cdninstagram.com",
+        "instagramstatic.com"
+      ]
+    },
+    {
+      "name": "TikTok",
+      "category": "Social Media",
+      "domains": [
+        "tiktok.com",
+        "www.tiktok.com",
+        "tiktokcdn.com",
+        "tiktokv.com",
+        "tiktok.org",
+        "musical.ly",
+        "tiktokads.com"
+      ]
+    },
+    {
+      "name": "Discord",
+      "category": "Social Media",
+      "domains": [
+        "discord.com",
+        "www.discord.com",
+        "discordapp.com",
+        "discord.gg",
+        "discordapp.net",
+        "discord.media"
+      ]
+    },
+    {
+      "name": "Reddit",
+      "category": "Social Media",
+      "domains": [
+        "reddit.com",
+        "www.reddit.com",
+        "redd.it",
+        "redditstatic.com",
+        "redditmedia.com",
+        "redditgifts.com"
+      ]
+    },
+    {
+      "name": "Snapchat",
+      "category": "Social Media",
+      "domains": [
+        "snapchat.com",
+        "www.snapchat.com",
+        "snap.com",
+        "sc-cdn.net",
+        "snap-dev.net",
+        "snapkit.co"
+      ]
+    },
+    {
+      "name": "LinkedIn",
+      "category": "Social Media",
+      "domains": [
+        "linkedin.com",
+        "www.linkedin.com",
+        "licdn.com",
+        "linkedin.at",
+        "linkedin.cn"
+      ]
+    },
+    {
+      "name": "Twitter/X",
+      "category": "Social Media",
+      "domains": [
+        "twitter.com",
+        "www.twitter.com",
+        "x.com",
+        "www.x.com",
+        "t.co",
+        "twimg.com",
+        "twitpic.com",
+        "twitterinc.com",
+        "twitter.jp"
+      ]
+    },
+    {
+      "name": "Pinterest",
+      "category": "Social Media",
+      "domains": [
+        "pinterest.com",
+        "www.pinterest.com",
+        "pinimg.com",
+        "pinterestmail.com",
+        "pinterest.jp"
+      ]
+    },
+    {
+      "name": "WhatsApp",
+      "category": "Social Media",
+      "domains": [
+        "whatsapp.com",
+        "www.whatsapp.com",
+        "wa.me",
+        "whatsapp.net",
+        "whatsapp.org",
+        "whatsapp-cdn-shv-01-ams2.fbcdn.net"
+      ]
+    },
+    {
+      "name": "YouTube",
+      "category": "Streaming",
+      "domains": [
+        "youtube.com",
+        "www.youtube.com",
+        "youtu.be",
+        "ytimg.com",
+        "googlevideo.com",
+        "youtube-nocookie.com",
+        "youtubeeducation.com"
+      ]
+    },
+    {
+      "name": "Netflix",
+      "category": "Streaming",
+      "domains": [
+        "netflix.com",
+        "www.netflix.com",
+        "nflxext.com",
+        "nflximg.net",
+        "nflxso.net",
+        "nflxvideo.net",
+        "netflix.net"
+      ]
+    },
+    {
+      "name": "Spotify",
+      "category": "Streaming",
+      "domains": [
+        "spotify.com",
+        "www.spotify.com",
+        "spotifycdn.com",
+        "spotify.net",
+        "scdn.co",
+        "spotifyads.com"
+      ]
+    },
+    {
+      "name": "Twitch",
+      "category": "Streaming",
+      "domains": [
+        "twitch.tv",
+        "www.twitch.tv",
+        "ttvnw.net",
+        "twitchcdn.net",
+        "twitchsvc.net",
+        "twitchcon.com"
+      ]
+    },
+    {
+      "name": "Disney+",
+      "category": "Streaming",
+      "domains": [
+        "disneyplus.com",
+        "www.disneyplus.com",
+        "disney.com",
+        "disneystreaming.com",
+        "disneynow.com"
+      ]
+    },
+    {
+      "name": "Steam",
+      "category": "Gaming",
+      "domains": [
+        "steamcommunity.com",
+        "steampowered.com",
+        "steam-chat.com",
+        "steamcontent.com",
+        "steamstatic.com"
+      ]
+    },
+    {
+      "name": "Epic Games",
+      "category": "Gaming",
+      "domains": [
+        "epicgames.com",
+        "www.epicgames.com",
+        "epicgames.net"
+      ]
+    },
+    {
+      "name": "Roblox",
+      "category": "Gaming",
+      "domains": [
+        "roblox.com",
+        "www.roblox.com",
+        "robloxlabs.com",
+        "rbxcdn.com"
+      ]
+    },
+    {
+      "name": "Xbox Live",
+      "category": "Gaming",
+      "domains": [
+        "xbox.com",
+        "www.xbox.com",
+        "xboxlive.com",
+        "xboxservices.com",
+        "xboxab.com"
+      ]
+    },
+    {
+      "name": "PlayStation Network",
+      "category": "Gaming",
+      "domains": [
+        "playstation.com",
+        "www.playstation.com",
+        "sonyentertainmentnetwork.com",
+        "playstation.net"
+      ]
+    },
+    {
+      "name": "Amazon",
+      "category": "Shopping",
+      "domains": [
+        "amazon.com",
+        "www.amazon.com",
+        "amazon.co.uk",
+        "amazon.de",
+        "amazon.fr",
+        "amazon-adsystem.com"
+      ]
+    },
+    {
+      "name": "eBay",
+      "category": "Shopping",
+      "domains": [
+        "ebay.com",
+        "www.ebay.com",
+        "ebayimg.com",
+        "ebaystatic.com",
+        "ebayinc.com"
+      ]
+    },
+    {
+      "name": "Temu",
+      "category": "Shopping",
+      "domains": [
+        "temu.com",
+        "www.temu.com"
+      ]
+    },
+    {
+      "name": "Zoom",
+      "category": "Productivity",
+      "domains": [
+        "zoom.us",
+        "www.zoom.us",
+        "zoom.com",
+        "zoomgov.com"
+      ]
+    },
+    {
+      "name": "Microsoft Teams",
+      "category": "Productivity",
+      "domains": [
+        "teams.microsoft.com",
+        "teams.live.com"
+      ]
+    },
+    {
+      "name": "Slack",
+      "category": "Productivity",
+      "domains": [
+        "slack.com",
+        "www.slack.com",
+        "slack-edge.com",
+        "slack-imgs.com"
+      ]
+    },
+    {
+      "name": "Google Analytics",
+      "category": "Tracking & Ads",
+      "domains": [
+        "google-analytics.com",
+        "www.google-analytics.com"
+      ]
+    },
+    {
+      "name": "Google DoubleClick",
+      "category": "Tracking & Ads",
+      "domains": [
+        "doubleclick.net",
+        "www.doubleclick.net",
+        "doubleclick.com",
+        "www.doubleclick.com"
+      ]
+    },
+    {
+      "name": "Facebook Pixel",
+      "category": "Tracking & Ads",
+      "domains": [
+        "connect.facebook.net",
+        "www.connect.facebook.net"
+      ]
+    },
+    {
+      "name": "TikTok Pixel",
+      "category": "Tracking & Ads",
+      "domains": [
+        "analytics.tiktok.com",
+        "ads.tiktok.com"
+      ]
+    },
+    {
+      "name": "Amazon Associates",
+      "category": "Tracking & Ads",
+      "domains": [
+        "associates.amazon.com",
+        "amazon-adsystem.com",
+        "www.amazon-adsystem.com"
+      ]
+    }
+  ]
+}
