@@ -8,8 +8,6 @@ A personal, cross-platform hosts-file blocker for **Windows, macOS, and Linux**.
 
 ## Desktop GUI screenshots
 
-Explore the native XusGuard interface. Select an image to view it at full resolution.
-
 <table>
   <tr>
     <td width="50%" align="center">
@@ -33,7 +31,7 @@ Explore the native XusGuard interface. Select an image to view it at full resolu
   </tr>
 </table>
 
-<sub>All four PNG screenshots were rebuilt with identical pixels and no embedded metadata. Screenshots may differ slightly from newer builds.</sub>
+<sub></sub>
 
 ## What makes this edition different?
 
