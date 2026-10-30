@@ -57,6 +57,7 @@ def validate_sources_payload(sources):
     if not isinstance(sources, dict):
         raise ValueError("sources.json must contain an object")
     normalized = {}
+    seen_names = set()
     for key, source in sources.items():
         if (not isinstance(key, str) or not key.isdigit()
                 or not isinstance(source, dict)):
@@ -66,6 +67,9 @@ def validate_sources_payload(sources):
         if (not isinstance(name, str) or not name or len(name) > 100
                 or safe_comment(name) != name):
             raise ValueError(f"Invalid source name at {key}")
+        if name.casefold() in seen_names:
+            raise ValueError(f"Duplicate source name at {key}; cache names must be unique")
+        seen_names.add(name.casefold())
         if not isinstance(url, str) or len(url) > 2048 or any(c.isspace() for c in url):
             raise ValueError(f"Invalid source URL at {key}")
         parts = urlsplit(url)
@@ -939,6 +943,9 @@ def add_source():
     if not name or safe_comment(name) != name or len(name) > 100:
         print_error("Source name must be a single line of at most 100 characters")
         return False
+    if any(src.get('name', '').casefold() == name.casefold() for src in HOSTS_SOURCES.values()):
+        print_error("A source with that name already exists")
+        return False
     
     url = input(f"{Colors.BRIGHT_CYAN}{Colors.BOLD}Source URL: {Colors.ENDC}").strip()
     if not url:
@@ -1247,12 +1254,7 @@ def install_adblock():
                 else:
                     print_warning(f"No valid entries found in {source['name']}")
             else:
-                if is_source_cached(source_name):
-                    file_path = get_source_file_path(source_name)
-                    saved_files.append(file_path)
-                    print_warning(f"Download failed for {source['name']}, using cached file")
-                else:
-                    print_error(f"Download failed for {source['name']} and no cached file available")
+                print_error(f"Verified download failed for {source['name']}; stale cache will not be installed")
     
     if not saved_files:
         print_error("No hosts files available (downloaded or cached)")
@@ -1375,33 +1377,33 @@ def flush_dns_cache():
 
 
 def get_service_domains(matching_sources):
-    """Get all domains from matching service sources"""
+    """Load enabled service lists without trusting a symlinked or empty cache."""
     all_domains = {}
-    
     for source_key, source in matching_sources:
-        source_file_path = get_source_file_path(source['name'])
-        if source_file_path and os.path.exists(source_file_path):
+        name = source['name']
+        cached_entries = None
+        if is_source_cached(name):
+            file_path = get_source_file_path(name)
             try:
-                with open(source_file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    content = f.read()
-                    entries = parse_hosts_file(content)
-                    if entries:
-                        merged, _ = merge_hosts_entries([entries])
-                        all_domains.update(merged)
-            except Exception as e:
-                print_warning(f"Could not read cached file for {source['name']}: {e}")
-        
-        if not all_domains or not (source_file_path and os.path.exists(source_file_path)):
-            print_info(f"Downloading {source['name']}...")
-            content = download_hosts_file(source['url'])
-            if content:
-                entries = parse_hosts_file(content)
-                if entries:
-                    merged, _ = merge_hosts_entries([entries])
-                    all_domains.update(merged)
-                    if source_file_path:
-                        save_source_file(source_key, source['name'], merged)
-    
+                with open(file_path, 'r', encoding='utf-8', errors='replace') as source_file:
+                    cached_entries = parse_hosts_file(source_file.read())
+            except OSError as exc:
+                print_warning(f"Could not read cached file for {name}: {exc}")
+        if cached_entries:
+            merged, _ = merge_hosts_entries([cached_entries])
+            all_domains.update(merged)
+            continue
+        content = download_hosts_file(source['url'])
+        if content is None:
+            print_warning(f"No verified service list for {name}")
+            continue
+        entries = parse_hosts_file(content)
+        if not entries:
+            print_warning(f"No usable hosts entries in service list {name}")
+            continue
+        merged, _ = merge_hosts_entries([entries])
+        all_domains.update(merged)
+        save_source_file(source_key, name, merged)
     return all_domains
 
 
