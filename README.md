@@ -21,8 +21,8 @@ A personal, cross-platform hosts-file blocker for **Windows, macOS, and Linux**,
 Requires **Python 3.10+** and an internet connection **only if you download a blocklist**. XusGuard does not auto-install Python, `pip`, or dependencies.
 
 1. [Download this repository as a ZIP](https://github.com/EngineXus-dev/Uni-Adblock/archive/refs/heads/main.zip), or clone it from your own repository. Extract the entire folder.
-2. Read `sources.json`, `uniadblock.py`, and the launcher for your OS.
-3. Run **`install.bat`** in Windows or **`bash install.sh`** in Linux/macOS. To run directly: `py -3 uniadblock.py` (Windows) or `python3 uniadblock.py` (Linux/macOS).
+2. Read `sources.json`, `xusguard.py`, and the launcher for your OS.
+3. Run **`install.bat`** in Windows or **`bash install.sh`** in Linux/macOS. To run directly: `py -3 xusguard.py` (Windows) or `python3 xusguard.py` (Linux/macOS).
 4. First use **Backup current hosts file**. Then enable **one reputable HTTPS blocklist**, download/update, inspect the result, and confirm installation.
 5. Elevate **only when changing the system hosts file**. If replacement is blocked by your OS security settings, XusGuard fails rather than weakening protections.
 

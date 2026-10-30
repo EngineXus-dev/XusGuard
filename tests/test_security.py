@@ -8,11 +8,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class SecurityTests(unittest.TestCase):
     def test_python_compiles(self):
-        source = (ROOT / "uniadblock.py").read_text(encoding="utf-8")
-        compile(source, "uniadblock.py", "exec")
+        source = (ROOT / "xusguard.py").read_text(encoding="utf-8")
+        compile(source, "xusguard.py", "exec")
 
     def test_tls_verification_not_bypassed(self):
-        source = (ROOT / "uniadblock.py").read_text(encoding="utf-8")
+        source = (ROOT / "xusguard.py").read_text(encoding="utf-8")
         tree = ast.parse(source)
         insecure = {"_create_unverified_context", "CERT_NONE"}
         self.assertFalse(any(

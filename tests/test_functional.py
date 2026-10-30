@@ -7,7 +7,7 @@ import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location("xusguard_test_app", ROOT / "uniadblock.py")
+SPEC = importlib.util.spec_from_file_location("xusguard_test_app", ROOT / "xusguard.py")
 APP = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(APP)
 
@@ -124,14 +124,14 @@ class HostSafetyTests(unittest.TestCase):
 
 class OwnershipTests(unittest.TestCase):
     def test_no_upstream_network_references(self):
-        for path in ("uniadblock.py", "install.sh", "install.bat", "README.md"):
+        for path in ("xusguard.py", "install.sh", "install.bat", "README.md"):
             with self.subTest(path=path):
                 txt = (ROOT / path).read_text(encoding="utf-8").lower()
                 self.assertNotIn("raw.githubusercontent.com/infosecredd", txt)
                 self.assertNotIn("github.com/infosecredd", txt)
 
     def test_no_automatic_package_installs(self):
-        app = (ROOT / "uniadblock.py").read_text(encoding="utf-8")
+        app = (ROOT / "xusguard.py").read_text(encoding="utf-8")
         self.assertNotIn("setup_venv()", app)
         self.assertNotIn("pip', 'install'", app)
 
