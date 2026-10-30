@@ -607,84 +607,60 @@ def restore_from_default_hosts(hosts_path):
         return False
 
 
-def restore_hosts_file(hosts_path):
-    """Restore hosts file from backup - shows menu to select backup"""
-    clear_screen()
-    backup_dir = get_backup_directory()
-    
-    backups = []
-    
-    simple_backup = Path(hosts_path + BACKUP_SUFFIX)
-    if simple_backup.exists():
-        backups.append(('1', str(simple_backup), simple_backup.stat().st_mtime))
-    
-    backup_files = list(backup_dir.glob(f"*{BACKUP_SUFFIX}"))
-    # Preserve access to backups made by older releases inside the checkout.
-    legacy_backup_dir = Path(__file__).resolve().parent / DEFAULT_BACKUP_DIR
-    if (legacy_backup_dir != backup_dir and legacy_backup_dir.is_dir()
-            and not legacy_backup_dir.is_symlink()):
-        backup_files.extend(legacy_backup_dir.glob(f"*{BACKUP_SUFFIX}"))
-    backup_files = [p for p in backup_files if p.is_file() and not p.is_symlink()]
-    for backup_file in sorted(backup_files, key=lambda x: x.stat().st_mtime, reverse=True):
-        backups.append((str(len(backups) + 1), str(backup_file), backup_file.stat().st_mtime))
-    
-    if not backups:
-        print_error("No backup files found")
-        return False
-    
-    menu_lines = []
-    
-    menu_lines.append(f"{Colors.BRIGHT_MAGENTA}{Colors.BOLD}  XusGuard - Universal Platform Adblock{Colors.ENDC}")
-    menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
-    
-    menu_lines.append(f"{Colors.BRIGHT_WHITE}{Colors.BOLD}  Select Backup to Restore{Colors.ENDC}")
-    menu_lines.append(f"{Colors.BRIGHT_CYAN}  {'─' * 50}{Colors.ENDC}")
-    menu_lines.append("")
-    
-    key_colors = [Colors.BRIGHT_GREEN, Colors.BRIGHT_BLUE, Colors.BRIGHT_CYAN, Colors.BRIGHT_YELLOW, 
-                 Colors.BRIGHT_MAGENTA, Colors.BRIGHT_RED, Colors.BRIGHT_GREEN, Colors.BRIGHT_BLUE,
-                 Colors.BRIGHT_CYAN, Colors.BRIGHT_YELLOW]
-    
-    for idx, (num, backup_path, mtime) in enumerate(backups, 1):
-        timestamp = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')
-        key_color = key_colors[(int(num) - 1) % len(key_colors)] if num.isdigit() else Colors.BRIGHT_WHITE
-        menu_lines.append(f"{key_color}{Colors.BOLD}  {num}.{Colors.ENDC}{Colors.WHITE} {backup_path}{Colors.ENDC}")
-        menu_lines.append(f"{Colors.BRIGHT_CYAN}    Created: {timestamp}{Colors.ENDC}")
-    
-    menu_lines.append("")
-    menu_lines.append("")
-    menu_lines.append(f"{Colors.BRIGHT_RED}{Colors.BOLD}  0.{Colors.ENDC}{Colors.BRIGHT_WHITE} Back{Colors.ENDC}")
-    
-    print()
-    print_boxed_menu(menu_lines, width=70)
-    print()
-    
-    choice = input(f"{Colors.BRIGHT_CYAN}{Colors.BOLD}Enter your choice: {Colors.ENDC}").strip()
-    
-    if choice == '0' or not choice:
-        print_info("Restore cancelled")
-        return False
-    
-    selected_backup = None
-    for num, backup_path, _ in backups:
-        if num == choice:
-            selected_backup = backup_path
-            break
-    
-    if not selected_backup or not os.path.exists(selected_backup):
-        print_error("Invalid selection")
-        return False
-    
+def get_available_backups(hosts_path):
+    """List only verified backups matching the current hosts-file basename."""
+    from xusguard_recovery import list_backups
+    legacy = Path(__file__).resolve().parent / DEFAULT_BACKUP_DIR
+    legacy = legacy if legacy.is_dir() and not legacy.is_symlink() else None
+    return list_backups(hosts_path, get_backup_directory(), legacy)
+
+
+def recover_selected_backup(hosts_path, selected_path, expected_sha256):
+    """Validate user-selected backup and restore exact bytes with a new safety backup."""
+    from xusguard_recovery import restore_backup
+    primary = get_backup_directory()
+    legacy = Path(__file__).resolve().parent / DEFAULT_BACKUP_DIR
+    allowed = [primary]
+    if legacy.is_dir() and not legacy.is_symlink():
+        allowed.append(legacy)
     try:
-        if Path(selected_backup).is_symlink() or not Path(selected_backup).is_file():
-            return False
-        if not install_hosts_file(hosts_path, Path(selected_backup).read_text(encoding='utf-8')):
-            return False
-        print_success(f"Hosts file restored from {selected_backup}")
-        return True
-    except Exception as e:
-        print_error(f"Failed to restore backup: {e}")
+        return restore_backup(hosts_path, selected_path, allowed,
+                              expected_sha256, install_hosts_file)
+    except (ValueError, OSError) as exc:
+        print_error(f"Recovery refused: {exc}")
         return False
+
+
+def restore_hosts_file(hosts_path):
+    """Interactive restore using verified backups and explicit SHA-256 consent."""
+    records = get_available_backups(hosts_path)
+    if not records:
+        print_warning("No valid backups found for this hosts file")
+        return False
+    clear_screen()
+    print_boxed_menu(["XusGuard - Safe Recovery",
+                      "A new backup of the current hosts file is mandatory.",
+                      "0. Cancel"] +
+                     [f"{i}. {r['created']} ({r['size']:,} bytes) - {Path(r['path']).name}"
+                      for i, r in enumerate(records, 1)], width=90)
+    try:
+        index = int(safe_input("Backup number (0 to cancel): ").strip())
+        if index == 0:
+            return False
+        if index < 1 or index > len(records):
+            print_error("Invalid backup number")
+            return False
+    except ValueError:
+        return False
+    selected = records[index - 1]
+    print_info(f"Selected SHA-256: {selected['sha256']}")
+    if safe_input("Restore exact backup bytes? Type RESTORE to confirm: ").strip() != "RESTORE":
+        print_info("Recovery cancelled")
+        return False
+    if recover_selected_backup(hosts_path, selected["path"], selected["sha256"]):
+        print_success("Hosts file recovered from verified backup")
+        return True
+    return False
 
 
 MANAGED_START = '# BEGIN XUSGUARD MANAGED'
@@ -740,7 +716,13 @@ def install_hosts_file(hosts_path, content):
         target = Path(hosts_path)
         if target.is_symlink() or not target.is_file():
             raise OSError("Refusing to change a missing, non-regular or symlink hosts file")
-        if not isinstance(content, str) or '\x00' in content or len(content.encode('utf-8')) > 40 * 1024 * 1024:
+        if isinstance(content, str):
+            payload = content.encode('utf-8')
+        elif isinstance(content, bytes):
+            payload = content
+        else:
+            raise ValueError("Hosts file content must be UTF-8 text or exact backup bytes")
+        if b'\x00' in payload or len(payload) == 0 or len(payload) > 40 * 1024 * 1024:
             raise ValueError("Invalid hosts file contents or larger than 40 MiB")
         if not backup_hosts_file(str(target)):
             return False
@@ -750,7 +732,7 @@ def install_hosts_file(hosts_path, content):
             dir=str(target.parent), delete=False
         ) as tmp:
             temp_path = Path(tmp.name)
-            tmp.write(content.encode('utf-8'))
+            tmp.write(payload)
             tmp.flush()
             os.fsync(tmp.fileno())
         shutil.copystat(target, temp_path)
