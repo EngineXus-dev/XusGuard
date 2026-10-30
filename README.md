@@ -82,6 +82,11 @@ XusGuard now includes an **optional native Tkinter desktop interface** with dark
 
 The dashboard displays local hosts-file state; **Blocklists** manages opt-in sources and explicit downloads; **Preview & Apply** previews *locally cached, fresh* lists and verifies the hosts file and sources again before any write; **Services** manages the separate, opt-in access-blocking rules; **Recovery** lists verified backups with SHA-256 digests and requires `RESTORE` confirmation; **Diagnostics** runs the entire disposable-file recovery drill with one button.
 
+**Click-to-toggle multi-selection:** On the Blocklists and Services pages, click any row to select it; click it again to deselect. Several selections stay highlighted without Ctrl or Shift, including after taking an action or navigating away. Use **Toggle selected sources** for several blocklist sources at once, or **Block/Unblock selected** for selected services. The **Recovery** page intentionally remains single-select to prevent accidental multi-backup restores.
+
+**Readable Diagnostics:** Recovery drills show a short pass/fail summary by default, including tests passed and skipped. Expected negative-test errors are hidden from the summary; choose **Show / hide detailed output** for a sanitized, ANSI-free technical log. A deliberately blocked write, damaged backup, or invalid test encoding is expected when its test reports `ok`.
+
+
 **Privilege model:** Browsing and downloads do not require administrator/root permissions. Applying, restoring, or blocking a service uses the normal OS file permissions; the GUI does **not** auto-elevate or weaken protections. Never treat a green status label as proof that advertisements or trackers are fully blocked.
 
 ### Recovery testing and safeguards
