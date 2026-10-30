@@ -51,77 +51,93 @@ SOURCES_DIR = 'hosts_sources'
 SOURCES_JSON_FILE = 'sources.json'
 
 
-def get_default_sources():
-    """Get default sources from sources.json file (if it exists in script directory)"""
-    script_dir = Path(__file__).resolve().parent
-    default_json_path = script_dir / SOURCES_JSON_FILE
-    
-    if default_json_path.exists():
-        try:
-            with open(default_json_path, 'r', encoding='utf-8') as f:
-                sources = json.load(f)
-                for key, source in sources.items():
-                    if 'enabled' not in source:
-                        source['enabled'] = False
-                return sources
-        except (json.JSONDecodeError, IOError):
-            pass
-    
-    return {}
+def validate_sources_payload(sources):
+    """Validate configuration without contacting any configured URL."""
+    from urllib.parse import urlsplit
+    if not isinstance(sources, dict):
+        raise ValueError("sources.json must contain an object")
+    normalized = {}
+    for key, source in sources.items():
+        if (not isinstance(key, str) or not key.isdigit()
+                or not isinstance(source, dict)):
+            raise ValueError("Malformed source identifier or record")
+        name = source.get('name')
+        url = source.get('url')
+        if (not isinstance(name, str) or not name or len(name) > 100
+                or safe_comment(name) != name):
+            raise ValueError(f"Invalid source name at {key}")
+        if not isinstance(url, str) or len(url) > 2048 or any(c.isspace() for c in url):
+            raise ValueError(f"Invalid source URL at {key}")
+        parts = urlsplit(url)
+        if (parts.scheme != 'https' or not parts.hostname or
+                parts.username is not None or parts.password is not None
+                or parts.fragment):
+            raise ValueError(f"Source {key} must use HTTPS without credentials/fragments")
+        if 'enabled' in source and not isinstance(source['enabled'], bool):
+            raise ValueError(f"Source {key} has a non-boolean enabled flag")
+        record = dict(source)
+        record.setdefault('enabled', False)
+        normalized[key] = record
+    return normalized
 
 
 def get_sources_json_path():
-    """Get the path to the sources JSON file"""
-    script_dir = Path(__file__).resolve().parent
-    return script_dir / SOURCES_JSON_FILE
+    return Path(__file__).resolve().parent / SOURCES_JSON_FILE
 
 
 def load_sources():
-    """Load sources from JSON file, or create default if it doesn't exist"""
-    json_path = get_sources_json_path()
-    
-    if json_path.exists():
-        try:
-            if json_path.is_symlink():
-                raise OSError("Refusing symlinked sources.json")
-            with open(json_path, 'r', encoding='utf-8') as f:
-                sources = json.load(f)
-                for key, source in sources.items():
-                    if 'enabled' not in source:
-                        source['enabled'] = False
-                return sources
-        except (json.JSONDecodeError, OSError) as e:
-            print_warning(f"Failed to load sources.json: {e}")
-            print_info("Creating new sources.json...")
-    
-    default_sources = get_default_sources()
-    
-    if not default_sources:
-        print_warning("No sources.json found. Creating empty sources file.")
-        print_info("Please add sources using the 'Add new source' menu option.")
-        default_sources = {}
-    
-    save_sources(default_sources)
-    return default_sources
+    """Invalid configuration remains untouched; refuse unsafe auto-recovery."""
+    path = get_sources_json_path()
+    if not path.exists():
+        print_warning("No sources.json found. Extract the complete repository.")
+        return {}
+    try:
+        if path.is_symlink():
+            raise OSError("Refusing symlinked sources.json")
+        with path.open('r', encoding='utf-8') as file:
+            return validate_sources_payload(json.load(file))
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
+        print_error(f"sources.json could not be read: {exc}")
+        print_warning("Original configuration preserved; repair it before enabling sources.")
+        return {}
+
+
+def get_default_sources():
+    return load_sources()
 
 
 def save_sources(sources):
-    """Save sources to JSON file"""
-    json_path = get_sources_json_path()
+    """Never overwrite an unreadable, malformed, or symlinked configuration."""
+    temp_path = None
+    path = get_sources_json_path()
     try:
-        if json_path.is_symlink():
-            raise OSError("Refusing to write symlinked sources.json")
-        with tempfile.NamedTemporaryFile('w', encoding='utf-8', dir=json_path.parent,
-                                         prefix='.xusguard-sources-', delete=False) as f:
-            tmp_path = Path(f.name)
-            json.dump(sources, f, indent=2, ensure_ascii=False)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_path, json_path)
+        validated = validate_sources_payload(sources)
+        if path.is_symlink():
+            raise OSError("Refusing symlinked sources.json")
+        if path.exists():
+            with path.open('r', encoding='utf-8') as file:
+                validate_sources_payload(json.load(file))
+        with tempfile.NamedTemporaryFile(
+            mode='w', encoding='utf-8', dir=path.parent,
+            prefix='.xusguard-sources-', delete=False
+        ) as temp:
+            temp_path = Path(temp.name)
+            json.dump(validated, temp, indent=2, ensure_ascii=False)
+            temp.flush()
+            os.fsync(temp.fileno())
+        os.replace(temp_path, path)
+        temp_path = None
         return True
-    except OSError as e:
-        print_error(f"Failed to save sources.json: {e}")
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
+        print_error(f"Failed to save sources.json; original preserved: {exc}")
         return False
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
 
 HOSTS_SOURCES = get_default_sources()
 
